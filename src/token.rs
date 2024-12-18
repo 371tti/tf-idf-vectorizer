@@ -4,10 +4,9 @@ use serde::{Deserialize, Serialize};
 use rayon::prelude::*;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct TokenFrequency<IdType> {
+pub struct TokenFrequency {
     pub token_count: HashMap<String, u64>,
     pub total_token_count: u64,
-    pub id: IdType,
 }
 
 /// A struct that tracks the frequency of tokens and provides various methods
@@ -17,7 +16,6 @@ pub struct TokenFrequency<IdType> {
 /// - `IdType`: The type of the identifier for the token frequency instance.
 ///
 /// # Methods
-/// - `new(id: IdType) -> Self`: Creates a new `TokenFrequency` instance with the given identifier.
 /// - `new_with_id(id: IdType) -> Self`: Creates a new `TokenFrequency` instance with the given identifier.
 /// - `set_id(&mut self, id: IdType) -> &mut Self`: Sets the identifier for the `TokenFrequency` instance.
 /// - `add_token(&mut self, token: &str) -> &mut Self`: Adds a token to the frequency count.
@@ -71,26 +69,13 @@ pub struct TokenFrequency<IdType> {
 /// - `get_sorted_by_length_asc(&self) -> Vec<(String, u64)>`: Returns tokens sorted by length in ascending order.
 /// - `get_sorted_by_length_asc_parallel(&self) -> Vec<(String, u64)>`: Returns tokens sorted by length in ascending order using parallel processing.
 /// - `get_unique_token_ratio(&self) -> f64`: Returns the ratio of unique tokens to the total token count.
-impl<IdType: Send + Sync> TokenFrequency<IdType> {
-    pub fn new(id: IdType) -> Self {
+impl TokenFrequency {
+
+    pub fn new() -> Self {
         TokenFrequency {
-            id: id,
             token_count: HashMap::new(),
             total_token_count: 0,
         }
-    }
-
-    pub fn new_with_id(id: IdType) -> Self {
-        TokenFrequency {
-            id: id,
-            token_count: HashMap::new(),
-            total_token_count: 0,
-        }
-    }
-
-    pub fn set_id(&mut self, id: IdType) -> &mut Self {
-        self.id = id;
-        self
     }
 
     pub fn add_token(&mut self, token: &str) -> &mut Self {
@@ -110,6 +95,15 @@ impl<IdType: Send + Sync> TokenFrequency<IdType> {
     pub fn add_tokens(&mut self, tokens: &[&str]) -> &mut Self {
         for &token in tokens {
             let count = self.token_count.entry(token.to_string()).or_insert(0);
+            *count += 1;
+            self.total_token_count += 1;
+        }
+        self
+    }
+
+    pub fn add_tokens_string(&mut self, tokens: &[String]) -> &mut Self {
+        for token in tokens {
+            let count = self.token_count.entry(token.clone()).or_insert(0);
             *count += 1;
             self.total_token_count += 1;
         }
@@ -177,6 +171,74 @@ impl<IdType: Send + Sync> TokenFrequency<IdType> {
         }
     }
 
+    pub fn get_idf_vector(&self, total_doc_count: u64) -> Vec<(String, f64)> {
+        self.token_count
+            .iter()
+            .map(|(token, &doc_count)| {
+                let idf = (total_doc_count as f64 / (1.0 + doc_count as f64)).ln();
+                (token.clone(), idf)
+            })
+            .collect()
+    }
+
+    pub fn get_idf_vector_ref(&self, total_doc_count: u64) -> Vec<(&str, f64)> {
+        self.token_count.iter().map(|(token, &doc_count)| {
+            let idf = (total_doc_count as f64 / (1.0 + doc_count as f64)).ln();
+            (token.as_str(), idf)
+        }).collect()
+    }
+
+    pub fn get_idf_vector_parallel(&self, total_doc_count: u64) -> Vec<(String, f64)> {
+        self.token_count
+            .par_iter()
+            .map(|(token, &doc_count)| {
+                let idf = (total_doc_count as f64 / (1.0 + doc_count as f64)).ln();
+                (token.clone(), idf)
+            })
+            .collect()
+    }
+
+    pub fn get_idf_vector_ref_parallel(&self, total_doc_count: u64) -> Vec<(&str, f64)> {
+        self.token_count.par_iter().map(|(token, &doc_count)| {
+            let idf = (total_doc_count as f64 / (1.0 + doc_count as f64)).ln();
+            (token.as_str(), idf)
+        }).collect()
+    }
+
+    pub fn get_idf_hashmap(&self, total_doc_count: u64) -> HashMap<String, f64> {
+        self.token_count
+            .iter()
+            .map(|(token, &doc_count)| {
+                let idf = (total_doc_count as f64 / (1.0 + doc_count as f64)).ln();
+                (token.clone(), idf)
+            })
+            .collect()
+    }
+
+    pub fn get_idf_hashmap_ref(&self, total_doc_count: u64) -> HashMap<&str, f64> {
+        self.token_count.iter().map(|(token, &doc_count)| {
+            let idf = (total_doc_count as f64 / (1.0 + doc_count as f64)).ln();
+            (token.as_str(), idf)
+        }).collect()
+    }
+
+    pub fn get_idf_hashmap_parallel(&self, total_doc_count: u64) -> HashMap<String, f64> {
+        self.token_count
+            .par_iter()
+            .map(|(token, &doc_count)| {
+                let idf = (total_doc_count as f64 / (1.0 + doc_count as f64)).ln();
+                (token.clone(), idf)
+            })
+            .collect()
+    }
+
+    pub fn get_idf_hashmap_ref_parallel(&self, total_doc_count: u64) -> HashMap<&str, f64> {
+        self.token_count.par_iter().map(|(token, &doc_count)| {
+            let idf = (total_doc_count as f64 / (1.0 + doc_count as f64)).ln();
+            (token.as_str(), idf)
+        }).collect()
+    }
+
     pub fn get_token_count_vector(&self) -> Vec<(String, u64)> {
         self.token_count.iter().map(|(token, &count)| {
             (token.clone(), count)
@@ -201,10 +263,6 @@ impl<IdType: Send + Sync> TokenFrequency<IdType> {
         &self.total_token_count
     }
 
-    pub fn get_id(&self) -> &IdType {
-        &self.id
-    }
-
     pub fn get_token_count(&self, token: &str) -> u64 {
         *self.token_count.get(token).unwrap_or(&0)
     }
@@ -213,15 +271,32 @@ impl<IdType: Send + Sync> TokenFrequency<IdType> {
         self.token_count.get(token).unwrap_or(&0)
     }
 
-    pub fn get_most_frequent_token(&self) -> Option<(String, u64)> {
-        self.token_count.iter().max_by_key(|&(_, count)| count).map(|(token, &count)| (token.clone(), count))
+    pub fn get_most_frequent_tokens(&self) -> Vec<(String, u64)> {
+        if let Some(&max_count) = self.token_count.values().max() {
+            self.token_count.iter()
+                .filter(|&(_, &count)| count == max_count)
+                .map(|(token, &count)| (token.clone(), count))
+                .collect()
+        } else {
+            Vec::new()
+        }
     }
 
-    pub fn get_most_frequent_token_parallel(&self) -> Option<(String, u64)> {
+    pub fn get_most_frequent_tokens_parallel(&self) -> Vec<(String, u64)> {
+        if self.token_count.is_empty() {
+            return Vec::new();
+        }
+        let max_frequency = self
+            .token_count
+            .par_iter()
+            .map(|(_, &count)| count)
+            .max()
+            .unwrap();
         self.token_count
             .par_iter()
-            .reduce_with(|a, b| if a.1 >= b.1 { a } else { b })
+            .filter(|&(_, &count)| count == max_frequency)
             .map(|(token, &count)| (token.clone(), count))
+            .collect()
     }
 
     pub fn get_tfidf_vector(&self, idf_map: &HashMap<String, f64>) -> Vec<(String, f64)> {
@@ -492,3 +567,62 @@ impl<IdType: Send + Sync> TokenFrequency<IdType> {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Document {
+    pub text: String,
+    pub tokens: TokenFrequency,
+}
+
+impl Document {
+    pub fn new() -> Self {
+        Document {
+            text: String::new(),
+            tokens: TokenFrequency::new(),
+        }
+    }
+
+    pub fn new_with_set(text: &str, tokens: TokenFrequency) -> Self {
+        Document {
+            text: text.to_string(),
+            tokens,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct DocumentAnalyzer<IdType, Splitter>
+where
+    IdType: Eq + std::hash::Hash,
+    Splitter: Fn(&str) -> Vec<String>,
+{
+    pub documents: HashMap<IdType, Document>,
+    pub token_doc_frequncy: TokenFrequency,
+    pub total_doc_count: u64,
+    pub spliter: Splitter,
+}
+
+impl<IdType, Splitter> DocumentAnalyzer<IdType, Splitter>
+where
+    IdType: Eq + std::hash::Hash,
+    Splitter: Fn(&str) -> Vec<String>,
+{
+    pub fn new_with_spliter(splitter: Splitter) -> Self {
+        Self {
+            documents: HashMap::new(),
+            token_doc_frequncy: TokenFrequency::new(),
+            total_doc_count: 0,
+            spliter: splitter,
+        }
+    }
+
+    pub fn add_document(&mut self, id: IdType, content: &str) {
+        let binding = (self.spliter)(content);
+        let mut token_frequency = TokenFrequency::new();
+        token_frequency.add_tokens_string(&binding);
+        self.token_doc_frequncy
+        .add_tokens(&token_frequency.get_token_set_ref());
+        self.documents
+        .insert(id, Document::new_with_set(content, token_frequency));
+        self.total_doc_count += 1;
+    }
+}
