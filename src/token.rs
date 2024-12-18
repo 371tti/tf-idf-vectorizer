@@ -110,6 +110,50 @@ impl TokenFrequency {
         self
     }
 
+    pub fn sub_token(&mut self, token: &str) -> &mut Self {
+        if let Some(count) = self.token_count.get_mut(token) {
+            if *count > 0 {
+                *count -= 1;
+                self.total_token_count -= 1;
+            }
+        }
+        self
+    }
+
+    pub fn sub_token_n(&mut self, token: &str, n: u64) -> &mut Self {
+        if let Some(count) = self.token_count.get_mut(token) {
+            if *count >= n {
+                *count -= n;
+                self.total_token_count -= n;
+            }
+        }
+        self
+    }
+
+    pub fn sub_tokens(&mut self, tokens: &[&str]) -> &mut Self {
+        for &token in tokens {
+            if let Some(count) = self.token_count.get_mut(token) {
+                if *count > 0 {
+                    *count -= 1;
+                    self.total_token_count -= 1;
+                }
+            }
+        }
+        self
+    }
+
+    pub fn sub_tokens_string(&mut self, tokens: &[String]) -> &mut Self {
+        for token in tokens {
+            if let Some(count) = self.token_count.get_mut(token.as_str()) {
+                if *count > 0 {
+                    *count -= 1;
+                    self.total_token_count -= 1;
+                }
+            }
+        }
+        self
+    }
+
     pub fn get_tf_vector(&self) -> Vec<(String, f64)> {
         self.token_count.iter().map(|(token, &count)| {
             (token.clone(), count as f64 / self.total_token_count as f64)
@@ -624,5 +668,20 @@ where
         self.documents
         .insert(id, Document::new_with_set(content, token_frequency));
         self.total_doc_count += 1;
+    }
+
+    pub fn get_document(&self, id: &IdType) -> Option<&Document> {
+        self.documents.get(id)
+    }
+
+    pub fn del_document(&mut self, id: &IdType) -> Option<Document> {
+        if let Some(document) = self.documents.remove(id) {
+            self.total_doc_count -= 1;
+            self.token_doc_frequncy
+                .sub_tokens(&document.tokens.get_token_set_ref());
+            Some(document)
+        } else {
+            None
+        }
     }
 }
