@@ -1,9 +1,63 @@
-use std::collections::{hash_map::Keys, HashMap, HashSet};
+use core::str;
+use std::{collections::{hash_map::Keys, HashMap, HashSet}, intrinsics::drop_in_place};
 
+use fst::{raw::Fst, Map, MapBuilder, Streamer};
 use serde::{Deserialize, Serialize};
 use rayon::{prelude::*, vec};
-// use trie_rs::map::TrieBuilder;
+use sprs::CsVec;
 
+/*
+/// paralel操作は順序が保証されないため、順序が重要な場合は注意が必要
+*/
+
+
+///  FromVec トレイト
+pub trait FromVec<T> {
+    fn from_vec(vec: Vec<T>) -> Self;
+    fn from_vec_parallel(vec: Vec<T>) -> Self;
+}
+
+//  CsVec<T> に対する FromVec トレイトの実装
+impl<T> FromVec<T> for CsVec<T>
+where
+    T: Clone + PartialEq + Default + Send + Sync,
+{
+    /// 通常のfrom_vec実装
+    fn from_vec(vec: Vec<T>) -> Self {
+        let indices: Vec<usize> = vec
+            .iter()
+            .enumerate()
+            .filter(|&(_, value)| value != &T::default())
+            .map(|(index, _)| index)
+            .collect();
+
+        let values: Vec<T> = vec
+            .iter()
+            .filter(|value| **value != T::default())
+            .cloned()
+            .collect();
+
+        CsVec::new(vec.len(), indices, values)
+    }
+
+    /// 並列処理版のfrom_vec実装 順序が保証されない
+    fn from_vec_parallel(vec: Vec<T>) -> Self {
+        // インデックスと値を並列に収集
+        let pairs: Vec<(usize, T)> = vec
+            .into_par_iter() // 並列イテレータに変換
+            .enumerate()
+            .filter(|&(_, ref value)| *value != T::default())
+            .collect();
+
+        // インデックスと値を分離
+        let (indices, values): (Vec<usize>, Vec<T>) = pairs.into_iter().unzip();
+
+        CsVec::new(indices.len(), indices, values)
+    }
+}
+
+
+///  TokenFrequency 構造体
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TokenFrequency {
     pub token_count: HashMap<String, u32>,
@@ -370,21 +424,106 @@ impl TokenFrequency {
             .collect()
     }
 
+    pub fn tfidf_calc(tf : f64, idf: f64) -> f64 {
+        tf * idf
+    }
+
+    pub fn tfidf_calc_as_u16(tf : u16, idf: u16) -> u16 {
+        let normalized_value = (tf as f32 * idf as f32) / u16::MAX as f32;
+        // 0～65535 にスケール
+        (normalized_value * 65535.0).ceil() as u16
+    }
+
+    pub fn tfidf_calc_as_u32(tf : u32, idf: u32) -> u32 {
+        let normalized_value = (tf as f64 * idf as f64) / u32::MAX as f64;
+        // 0～4294967295 にスケール
+        (normalized_value * 4294967295.0).ceil() as u32
+    }
+
     pub fn get_tfidf_vector(&self, idf_map: &HashMap<String, u16>) -> Vec<(String, u16)> {
         self.token_count.iter().map(|(token, &count)| {
             let tf = Self::tf_calc_as_u16(self.get_most_frequent_token_count(), count);
             let idf = idf_map.get(token).copied().unwrap_or(0);
-            (token.clone(), ((tf as u32 * idf as u32) / u16::MAX as u32) as u16)
+            (token.clone(), Self::tfidf_calc_as_u16(tf, idf))
         }).collect()
     }
 
-    pub fn get_tfidf_vector_parallel(&self, idf_map: &HashMap<String, u16>) -> Vec<(String, f64)> {
+    pub fn get_tfidf_vector_fst(&self, idf_map: &Map<Vec<u8>>) -> Vec<(String, u16)> {
+        self.token_count.iter().map(|(token, &count)| {
+            let tf = Self::tf_calc_as_u16(self.get_most_frequent_token_count(), count);
+            let idf = match idf_map.get(token.as_bytes()) {
+                Some(idf) => idf as u16,
+                None => 0,
+            };
+            (token.clone(), Self::tfidf_calc_as_u16(tf, idf))
+        }).collect()
+    }
+
+    pub fn get_tfidf_hashmap(&self, idf_map: &HashMap<String, u16>) -> HashMap<String, u16> {
+        self.token_count.iter().map(|(token, &count)| {
+            let tf = Self::tf_calc_as_u16(self.get_most_frequent_token_count(), count);
+            let idf = idf_map.get(token).copied().unwrap_or(0);
+            (token.clone(), Self::tfidf_calc_as_u16(tf, idf))
+        }).collect()
+    }
+
+    pub fn get_tfidf_hashmap_fst(&self, idf_map: &Map<Vec<u8>>) -> HashMap<String, u16> {
+        self.token_count.iter().map(|(token, &count)| {
+            let tf = Self::tf_calc_as_u16(self.get_most_frequent_token_count(), count);
+            let idf = match idf_map.get(token.as_bytes()) {
+                Some(idf) => idf as u16,
+                None => 0,
+            };
+            (token.clone(), Self::tfidf_calc_as_u16(tf, idf))
+        }).collect()
+    }
+
+    pub fn get_tfidf_vector_parallel(&self, idf_map: &HashMap<String, u16>) -> Vec<(String, u16)> {
         self.token_count
             .par_iter()
             .map(|(token, &count)| {
-                let tf = Self::tf_calc(self.get_most_frequent_token_count(), count);
-                let idf = idf_map.get(token).copied().unwrap_or(0) as f64;
-                (token.clone(), tf * idf)
+                let tf = Self::tf_calc_as_u16(self.get_most_frequent_token_count(), count);
+                let idf = idf_map.get(token).copied().unwrap_or(0);
+                (token.clone(), Self::tfidf_calc_as_u16(tf, idf))
+            })
+            .collect()
+    }
+
+    pub fn get_tfidf_vector_fst_parallel(&self, idf_map: &Map<Vec<u8>>) -> Vec<(String, u16)> {
+        self.token_count
+            .par_iter()
+            .map(|(token, &count)| {
+                let tf = Self::tf_calc_as_u16(self.get_most_frequent_token_count(), count);
+                let idf = match idf_map.get(token.as_bytes()) {
+                    Some(idf) => idf as u16,
+                    None => 0,
+                };
+                (token.clone(), Self::tfidf_calc_as_u16(tf, idf))
+            })
+            .collect()
+    }
+
+    pub fn get_tfidf_hashmap_parallel(&self, idf_map: &HashMap<String, u16>) -> HashMap<String, u16> {
+        self.token_count
+            .par_iter()
+            .map(|(token, &count)| {
+                let tf = Self::tf_calc_as_u16(self.get_most_frequent_token_count(), count);
+                let idf = idf_map.get(token).copied().unwrap_or(0);
+                (token.clone(), Self::tfidf_calc_as_u16(tf, idf))
+            })
+            .collect()
+    }
+
+    pub fn get_tfidf_hashmap_fst_parallel(&self, idf_map: &Map<Vec<u8>>) -> HashMap<String, u16> {
+        self.token_count
+            .par_iter()
+            .map(|(token, &count)| {
+                let tf = Self::tf_calc_as_u16(self.get_most_frequent_token_count(), count);
+                let idf = match idf_map.get(token.as_bytes()) {
+                    Some(idf) => idf as u16,
+                    None => 0,
+                };
+                (token.clone(), Self::tfidf_calc_as_u16(tf, idf))
             })
             .collect()
     }
@@ -636,6 +775,11 @@ impl TokenFrequency {
         }
         self.token_count.len() as f64 / self.total_token_count as f64
     }
+
+    pub fn reset(&mut self) {
+        self.token_count.clear();
+        self.total_token_count = 0;
+    }
 }
 
 
@@ -644,73 +788,110 @@ impl TokenFrequency {
 
 
 
-// pub struct Index<IdType> {
-//     pub index: HashMap<IdType, Vec<u16>>,
-//     pub index_float_max: (f64, f64),
-//     pub idf: IndexMap<String, (u16, u32)>,
-//     pub idf_float_max: f64,
-//     pub total_doc_count: u64,
-// }
+pub struct Index<IdType> {
+    pub index: HashMap<IdType, CsVec<u16>>,
+    pub idf: Map<Vec<u8>>,
+    pub total_doc_count: u64,
+}
+
+impl<IdType> Index<IdType> {
+    pub fn new_with_set(index: HashMap<IdType, CsVec<u16>>, idf: Map<Vec<u8>>, total_doc_count: u64) -> Self {
+        Self {
+            index,
+            idf,
+            total_doc_count,
+        }
+    }
+
+    pub fn get_index(&self) -> &HashMap<IdType, CsVec<u16>> {
+        &self.index
+    }
+
+    pub fn search(&self, query: &[&str]) -> Option<&IdType> {
+        let mut query_vec: Vec<u16> = Vec::new();
+        let mut stream = self.idf.stream();
+        while let Some((token, _)) = stream.next() {
+            let count = query.iter().filter(|&&q| q == str::from_utf8(token).unwrap()).count();
+            query_vec.push(TokenFrequency::tf_calc_as_u16(query.len() as u32, count as u32));
+        }
+        let query_csvec: CsVec<u16> = CsVec::from_vec(query_vec);
+
+        let mut max_similarity: f64 = 0.0;
+        let mut max_id: Option<&IdType> = None;
+        for (id, document) in self.index.iter() {
+            let similarity = query_csvec.dot(document) as f64 / (query_csvec.norm() * document.norm());
+            if similarity > max_similarity {
+                max_similarity = similarity;
+                max_id = Some(id);
+            }
+        }
+
+        max_id
+    }
+}
 
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Document {
-    pub text: String,
+    pub text: Option<String>,
     pub tokens: TokenFrequency,
 }
 
 impl Document {
     pub fn new() -> Self {
         Document {
-            text: String::new(),
+            text: None,
             tokens: TokenFrequency::new(),
         }
     }
 
-    pub fn new_with_set(text: &str, tokens: TokenFrequency) -> Self {
+    pub fn new_with_set(text: Option<&str>, tokens: TokenFrequency) -> Self {
         Document {
-            text: text.to_string(),
+            text: text.map(|s| s.to_string()),
             tokens,
         }
     }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct DocumentAnalyzer<IdType, Splitter>
+pub struct DocumentAnalyzer<IdType>
 where
-    IdType: Eq + std::hash::Hash,
-    Splitter: Fn(&str) -> Vec<String>,
+    IdType: Eq + std::hash::Hash + Clone,
 {
     pub documents: HashMap<IdType, Document>,
     pub idf: TokenFrequency,
     pub total_doc_count: u64,
-    pub spliter: Splitter,
 }
 
-impl<IdType, Splitter> DocumentAnalyzer<IdType, Splitter>
+impl<IdType> DocumentAnalyzer<IdType>
 where
-    IdType: Eq + std::hash::Hash,
-    Splitter: Fn(&str) -> Vec<String>,
+    IdType: Eq + std::hash::Hash + Clone,
 {
 
-    pub fn new_with_spliter(splitter: Splitter) -> Self {
+    pub fn new() -> Self {
         Self {
             documents: HashMap::new(),
             idf: TokenFrequency::new(),
             total_doc_count: 0,
-            spliter: splitter,
         }
     }
 
-    pub fn add_document(&mut self, id: IdType, content: &str) {
-        let binding = (self.spliter)(content);
-        let mut token_frequency = TokenFrequency::new();
-        token_frequency.add_tokens_string(&binding);
-        self.idf
-        .add_tokens(&token_frequency.get_token_set_ref());
-        self.documents
-        .insert(id, Document::new_with_set(content, token_frequency));
-        self.total_doc_count += 1;
+    pub fn add_document(&mut self, id: IdType, content: &[&str], text: Option<&str>) -> Option<&Document>{
+        if let Some(document) = self.documents.get_mut(&id) {
+            self.idf.sub_tokens_string(&document.tokens.get_token_set());
+            document.text = text.map(|s| s.to_string());
+            document.tokens.reset();
+            document. tokens.add_tokens(content);
+            self.idf.add_tokens_string(&document.tokens.get_token_set());
+            return self.documents.get(&id);
+        } else {
+            let mut tokens = TokenFrequency::new();
+            tokens.add_tokens(content);
+            self.idf.add_tokens_string(&tokens.get_token_set());
+            self.documents.insert(id.clone(), Document::new_with_set(text, tokens));
+            self.total_doc_count += 1;
+            return self.documents.get(&id);
+        }
     }
 
     pub fn get_document(&self, id: &IdType) -> Option<&Document> {
@@ -721,12 +902,67 @@ where
         if let Some(document) = self.documents.remove(id) {
             self.total_doc_count -= 1;
             self.idf
-                .sub_tokens(&document.tokens.get_token_set_ref());
+                .sub_tokens_string(&document.tokens.get_token_set());
             Some(document)
         } else {
             None
         }
     }
+
+    pub fn get_document_count(&self) -> u64 {
+        self.total_doc_count
+    }
+
+    pub fn get_token_set_vec(&self) -> Vec<String> {
+        self.idf.get_token_set()
+    }
+
+    pub fn get_token_set_vec_ref(&self) -> Vec<&str> {
+        self.idf.get_token_set_ref()
+    }
+
+    pub fn get_token_set(&self) -> HashSet<String> {
+        self.idf.get_token_hashset()
+    }
+
+    pub fn get_token_set_ref(&self) -> HashSet<&str> {
+        self.idf.get_token_hashset_ref()
+    }
+
+    pub fn get_token_set_len(&self) -> usize {
+        self.idf.get_token_set_len()
+    }
+
+    pub fn generate_index(&self) -> Index<IdType> {
+        //  idf のfst生成
+        let mut builder = MapBuilder::memory();
+        let mut idf_vec = self.idf.get_idf_vector_ref_parallel(self.total_doc_count);
+        idf_vec.sort_by(|a, b| a.0.cmp(b.0));
+        for (token, idf) in idf_vec {
+            builder.insert(token.as_bytes(), idf as u64).unwrap();
+        }
+        let idf = builder.into_map();
+
+        //  tf_idfの生成
+        let mut index: HashMap<IdType, CsVec<u16>> = HashMap::new();
+        for (id, document) in self.documents.iter() {
+            let tf_idf_vec: HashMap<String, u16> = document.tokens.get_tfidf_hashmap_fst_parallel(&idf);
+            let mut tf_idf_sort_vec: Vec<u16> = Vec::new();
+            let mut stream = idf.stream();
+            while let Some((token, _)) = stream.next() {
+                let tf_idf = *tf_idf_vec.get(str::from_utf8(token).unwrap()).unwrap_or(&0);
+                tf_idf_sort_vec.push(tf_idf);
+            }
+
+
+            let tf_idf_csvec: CsVec<u16> = CsVec::from_vec(tf_idf_sort_vec);
+            index.insert(id.clone(), tf_idf_csvec);
+        }
+
+        //  indexの返却
+        Index::new_with_set(index, idf, self.total_doc_count)
+    }
+
 
     // pub fn generate_index(&self) -> Index<IdType> {
     //     let mut index: HashMap<IdType, Vec<u16>> = HashMap::new();
