@@ -808,25 +808,25 @@ impl<IdType> Index<IdType> {
     }
 
     pub fn search(&self, query: &[&str]) -> Option<&IdType> {
-        let mut query_vec: Vec<u16> = Vec::new();
-        let mut stream = self.idf.stream();
-        while let Some((token, _)) = stream.next() {
-            let count = query.iter().filter(|&&q| q == str::from_utf8(token).unwrap()).count();
-            query_vec.push(TokenFrequency::tf_calc_as_u16(query.len() as u32, count as u32));
-        }
-        let query_csvec: CsVec<u16> = CsVec::from_vec(query_vec);
+        // let mut query_vec: Vec<u16> = Vec::new();
+        // let mut stream = self.idf.stream();
+        // while let Some((token, _)) = stream.next() {
+        //     let count = query.iter().filter(|&&q| q == str::from_utf8(token).unwrap()).count();
+        //     query_vec.push(TokenFrequency::tf_calc_as_u16(query.len() as u32, count as u32));
+        // }
+        // let query_csvec: CsVec<u16> = CsVec::from_vec(query_vec);
 
-        let mut max_similarity: f64 = 0.0;
-        let mut max_id: Option<&IdType> = None;
-        for (id, document) in self.index.iter() {
-            let similarity = query_csvec.dot(document) as f64 / (query_csvec.norm() * document.norm());
-            if similarity > max_similarity {
-                max_similarity = similarity;
-                max_id = Some(id);
-            }
-        }
+        // let mut max_similarity: f64 = 0.0;
+        // let mut max_id: Option<&IdType> = None;
+        // for (id, document) in self.index.iter() {
+        //     let similarity = query_csvec.dot(document) as f64 / (query_csvec.norm() * document.norm());
+        //     if similarity > max_similarity {
+        //         max_similarity = similarity;
+        //         max_id = Some(id);
+        //     }
+        // }
 
-        max_id
+        // max_id
     }
 }
 
