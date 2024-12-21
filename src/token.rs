@@ -1,7 +1,9 @@
 use core::str;
 use std::{collections::{hash_map::Keys, HashMap, HashSet}, intrinsics::drop_in_place};
+use base64::{encode, decode};
 
 use fst::{raw::Fst, Map, MapBuilder, Streamer};
+use bincode;
 use serde::{Deserialize, Serialize};
 use rayon::{prelude::*, vec};
 use sprs::CsVec;
@@ -99,8 +101,10 @@ impl TokenFrequency {
 
     pub fn add_tokens_string(&mut self, tokens: &[String]) -> &mut Self {
         for token in tokens {
+            println!("token: {}", token);
             let count = self.token_count.entry(token.clone()).or_insert(0);
             *count += 1;
+            println!("count: {}", count);
             self.total_token_count += 1;
         }
         self
@@ -264,26 +268,28 @@ impl TokenFrequency {
         Self::tf_calc_as_u16(max_count, count)
     }
 
+    #[inline]
     pub fn idf_max(&self, total_doc_count: u64) -> f64 {
-        if let Some(&max_count) = self.token_count.values().max() {
-            (total_doc_count as f64 / (1.0 + self.get_most_frequent_token_count() as f64)).ln()
-        } else {
-            0.0
-        }
+        (1.0 + total_doc_count as f64 / (2.0)).ln()
     }
 
+    #[inline]
     pub fn idf_calc(total_doc_count: u64, max_idf: f64, doc_count: u32) -> f64 {
-        (total_doc_count as f64 / (1.0 + doc_count as f64)).ln() / max_idf
+        (1.0 + total_doc_count as f64 / (1.0 + doc_count as f64)).ln() / max_idf
     }
 
+    #[inline]
     pub fn idf_calc_as_u16(total_doc_count: u64, max_idf: f64, doc_count: u32) -> u16 {
-        let normalized_value = ((total_doc_count as f64 / (1.0 + doc_count as f64)).ln() / max_idf);
+        println!("total_doc_count: {}, max_idf: {}, doc_count: {}", total_doc_count, max_idf, doc_count);
+        let normalized_value = ((1.0 + total_doc_count as f64 / (1.0 + doc_count as f64)).ln() / max_idf);
+        println!("normalized_value: {}", normalized_value);
         // 0～65535 にスケール
         (normalized_value * 65535.0).round() as u16
     }
 
+    #[inline]
     pub fn idf_calc_as_u32(total_doc_count: u64, max_idf: f64, doc_count: u32) -> u32 {
-        let normalized_value = ((total_doc_count as f64 / (1.0 + doc_count as f64)).ln() / max_idf);
+        let normalized_value = ((1.0 + total_doc_count as f64 / (1.0 + doc_count as f64)).ln() / max_idf);
         // 0～4294967295 にスケール
         (normalized_value * 4294967295.0).round() as u32
     }
@@ -318,6 +324,7 @@ impl TokenFrequency {
     pub fn get_idf_vector_ref_parallel(&self, total_doc_count: u64) -> Vec<(&str, u16)> {
         self.token_count.par_iter().map(|(token, &doc_count)| {
             let idf = Self::idf_calc_as_u16(total_doc_count, self.idf_max(total_doc_count), doc_count);
+            println!("token: {}, idf: {}", token, idf);
             (token.as_str(), idf)
         }).collect()
     }
@@ -784,17 +791,20 @@ impl TokenFrequency {
 
 
 
-
-
-
-
-pub struct Index<IdType> {
+pub struct Index<IdType> 
+where
+    IdType: Clone + Eq + std::hash::Hash + Serialize,
+{
     pub index: HashMap<IdType, CsVec<u16>>,
     pub idf: Map<Vec<u8>>,
     pub total_doc_count: u64,
 }
 
-impl<IdType> Index<IdType> {
+impl<IdType> Index<IdType>
+where
+    IdType: Clone + Eq + std::hash::Hash + Serialize,
+    {
+    
     pub fn new_with_set(index: HashMap<IdType, CsVec<u16>>, idf: Map<Vec<u8>>, total_doc_count: u64) -> Self {
         Self {
             index,
@@ -807,27 +817,92 @@ impl<IdType> Index<IdType> {
         &self.index
     }
 
-    pub fn search(&self, query: &[&str]) -> Option<&IdType> {
-        // let mut query_vec: Vec<u16> = Vec::new();
-        // let mut stream = self.idf.stream();
-        // while let Some((token, _)) = stream.next() {
-        //     let count = query.iter().filter(|&&q| q == str::from_utf8(token).unwrap()).count();
-        //     query_vec.push(TokenFrequency::tf_calc_as_u16(query.len() as u32, count as u32));
-        // }
-        // let query_csvec: CsVec<u16> = CsVec::from_vec(query_vec);
+    pub fn search(&self, query: &[&str], n: usize) -> Vec<(&IdType, f64)> {
+        //  queryのtfを生成
+        let mut binding = TokenFrequency::new();
+        let query_tf = binding.add_tokens(query);
 
-        // let mut max_similarity: f64 = 0.0;
-        // let mut max_id: Option<&IdType> = None;
-        // for (id, document) in self.index.iter() {
-        //     let similarity = query_csvec.dot(document) as f64 / (query_csvec.norm() * document.norm());
-        //     if similarity > max_similarity {
-        //         max_similarity = similarity;
-        //         max_id = Some(id);
-        //     }
-        // }
+        //  idfからqueryのtfidfを生成
+        let mut query_tfidf_vec: HashMap<String, u16> = query_tf.get_tfidf_hashmap_fst_parallel(&self.idf);
+        let mut sorted_query_tfidf_vec: Vec<u16> = Vec::new();
+        let mut stream = self.idf.stream();
+        while let Some((token, idf)) = stream.next() {
+            println!("{:?}: {}\n", token, idf);
+            let tfidf = *query_tfidf_vec.get(str::from_utf8(token).unwrap()).unwrap_or(&0);
+            sorted_query_tfidf_vec.push(tfidf);
+        }
+        let query_csvec: CsVec<u16> = CsVec::from_vec(sorted_query_tfidf_vec);
 
-        // max_id
+        //  cosine similarityで検索
+        let mut similarities: Vec<(&IdType, f64)> = self
+        .index
+        .iter()
+        .filter_map(|(id, document)| {
+            let similarity = Self::cosine_similarity(document, &query_csvec);
+            if similarity > 0.0 {
+                Some((id, similarity))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+        // 類似度で降順ソートし、上位 n 件を取得
+        similarities.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        similarities.truncate(n);
+
+        similarities
+
     }
+
+    fn cosine_similarity(vec_a: &CsVec<u16>, vec_b: &CsVec<u16>) -> f64 {
+        // 内積を計算
+        let dot_product = Self::dot_product_u16(vec_a, vec_b) as f64;
+        
+        // ノルム（ベクトルの長さ）を計算
+        let norm_a = (Self::dot_product_u16(vec_a, vec_a) as f64).sqrt();
+        let norm_b = (Self::dot_product_u16(vec_b, vec_b) as f64).sqrt();
+    
+        // コサイン類似度を返す
+        if norm_a > 0.0 && norm_b > 0.0 {
+            dot_product / (norm_a * norm_b)
+        } else {
+            0.0 // 少なくとも一方のベクトルがゼロの場合
+        }
+    }
+
+    fn dot_product_u16(vec_a: &CsVec<u16>, vec_b: &CsVec<u16>) -> u64 {
+        let mut result: u64 = 0;
+    
+        // `CsVec` のインデックスと値をイテレート
+        let mut iter_a = vec_a.iter();
+        let mut iter_b = vec_b.iter();
+    
+        let mut a = iter_a.next();
+        let mut b = iter_b.next();
+    
+        while let (Some((index_a, &val_a)), Some((index_b, &val_b))) = (a, b) {
+            match index_a.cmp(&index_b) {
+                std::cmp::Ordering::Equal => {
+                    // 両方のインデックスが一致
+                    result = result.saturating_add((val_a as u64) * (val_b as u64));
+                    a = iter_a.next();
+                    b = iter_b.next();
+                }
+                std::cmp::Ordering::Less => {
+                    // vec_a の次へ進む
+                    a = iter_a.next();
+                }
+                std::cmp::Ordering::Greater => {
+                    // vec_b の次へ進む
+                    b = iter_b.next();
+                }
+            }
+        }
+    
+        result
+    }
+    
 }
 
 
@@ -856,7 +931,7 @@ impl Document {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DocumentAnalyzer<IdType>
 where
-    IdType: Eq + std::hash::Hash + Clone,
+    IdType: Eq + std::hash::Hash + Clone + Serialize,
 {
     pub documents: HashMap<IdType, Document>,
     pub idf: TokenFrequency,
@@ -865,7 +940,7 @@ where
 
 impl<IdType> DocumentAnalyzer<IdType>
 where
-    IdType: Eq + std::hash::Hash + Clone,
+    IdType: Eq + std::hash::Hash + Clone + Serialize,
 {
 
     pub fn new() -> Self {
@@ -937,8 +1012,10 @@ where
         //  idf のfst生成
         let mut builder = MapBuilder::memory();
         let mut idf_vec = self.idf.get_idf_vector_ref_parallel(self.total_doc_count);
+        println!("idf :{:?}", idf_vec);
         idf_vec.sort_by(|a, b| a.0.cmp(b.0));
         for (token, idf) in idf_vec {
+            println!("{:?}: {}\n", token, idf);
             builder.insert(token.as_bytes(), idf as u64).unwrap();
         }
         let idf = builder.into_map();
@@ -962,22 +1039,4 @@ where
         //  indexの返却
         Index::new_with_set(index, idf, self.total_doc_count)
     }
-
-
-    // pub fn generate_index(&self) -> Index<IdType> {
-    //     let mut index: HashMap<IdType, Vec<u16>> = HashMap::new();
-    //     let mut idf = self.idf.get_idf_vector_ref_parallel(self.total_doc_count);
-    //     for (id, document) in self.documents.iter() {
-    //         let mut tf_idf_vec: Vec<f64> = Vec::new();
-    //         for (token, idf) in idf.iter() {
-    //             let tf = document.tokens.get_token_tf(token);
-    //             let tf_idf = tf * idf;
-    //             tf_idf_vec.push(tf_idf);
-    //         }
-            
-    //     }
-    //     let mut index_float_max = (0.0, 0.0);
-    //     let mut idf_float_max = 0.0;
-    //     let doc = self.documents.iter()
-    // }
 }
