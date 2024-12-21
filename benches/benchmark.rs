@@ -1,9 +1,9 @@
 use std::collections::HashMap;
+use rayon::vec;
 use sprs::CsVec;
 use tf_idf_vectorizer::token::DocumentAnalyzer;
 use reqwest;
 use criterion::{criterion_group, criterion_main, Criterion};
-use std::io::{self, Write};
 
 fn fetch_text_from_web() -> Result<Vec<String>, reqwest::Error> {
     let urls = vec![
@@ -18,6 +18,7 @@ fn fetch_text_from_web() -> Result<Vec<String>, reqwest::Error> {
         "https://www.gutenberg.org/files/1400/1400-0.txt", // Great Expectations
         "https://www.gutenberg.org/files/43/43-0.txt",     // The Strange Case of Dr. Jekyll and Mr. Hyde
     ];
+    
 
     let mut texts = Vec::new();
 
@@ -30,41 +31,44 @@ fn fetch_text_from_web() -> Result<Vec<String>, reqwest::Error> {
     Ok(texts)
 }
 
-
-fn main() {
-    // This is for manual runs outside of Criterion benchmarking
-    println!("Fetching text data...");
+fn analyze_and_search_benchmark(c: &mut Criterion) {
+    // Fetch text data from the web
     let texts = fetch_text_from_web().expect("Failed to fetch text data");
 
-    println!("Initializing DocumentAnalyzer...");
-    let mut analyzer = DocumentAnalyzer::<String>::new();
+    // Benchmark DocumentAnalyzer initialization and index generation
+    c.bench_function("generate_index", |b| {
+        b.iter(|| {
+            let mut analyzer = DocumentAnalyzer::<String>::new();
 
+            for (i, text) in texts.iter().enumerate() {
+                let tokens: Vec<&str> = text.split_whitespace().collect();
+                analyzer.add_document(format!("doc{}", i + 1), &tokens, Some(text));
+            }
+
+            analyzer.generate_index()
+        });
+    });
+
+    // Initialize DocumentAnalyzer and generate the index
+    let mut analyzer = DocumentAnalyzer::<String>::new();
     for (i, text) in texts.iter().enumerate() {
         let tokens: Vec<&str> = text.split_whitespace().collect();
         analyzer.add_document(format!("doc{}", i + 1), &tokens, Some(text));
     }
-
-    println!("Generating index...");
     let index = analyzer.generate_index();
 
-    loop {
-        println!("Enter your search query:");
-        let mut query = String::new();
-        io::stdin().read_line(&mut query).expect("Failed to read line");
-        let query_tokens: Vec<&str> = query.trim().split_whitespace().collect();
-        
-        if query_tokens.is_empty() {
-            println!("Empty query, exiting...");
-            break;
-        }
+    // Use one of the documents as a query
+    let query_tokens: Vec<&str> = vec!["the", "project", "gutenberg", "ebook", "of", "war", "and", "peace", "by", "leo", "tolstoy"];
 
-        println!("Performing search...");
-        let results = index.search(&query_tokens, 10);
-
-        println!("Search results:");
-        for (doc_id, similarity) in results {
-            println!("Document ID: {}, Similarity: {:.4}", doc_id, similarity);
-        }
-    }
-    println!("Done.");
+    // Benchmark the search function
+    c.bench_function("search", |b| {
+        b.iter(|| {
+            index.search(&query_tokens, 10)
+        });
+    });
 }
+
+criterion_group!(benches, analyze_and_search_benchmark);
+criterion_main!(benches);
+
+
