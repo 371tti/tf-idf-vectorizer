@@ -1,5 +1,5 @@
 use core::str;
-use std::collections::{hash_map::Keys, HashMap, HashSet};
+use std::{collections::{hash_map::Keys, HashMap, HashSet}, f32::consts::E};
 
 use fst::{Map, MapBuilder, Streamer};
 use serde::{Deserialize, Serialize};
@@ -788,9 +788,13 @@ pub struct Index<IdType>
 where
     IdType: Clone + Eq + std::hash::Hash + Serialize,
 {
-    pub index: HashMap<IdType, CsVec<u16>>,
-    pub idf: Map<Vec<u8>>,
-    pub total_doc_count: u64,
+    // doc_id -> (圧縮ベクトル, 文書の総トークン数)
+    // 圧縮ベクトル: インデックス順にトークンの TF を保持
+    pub index: HashMap<IdType, (CsVec<u16>, u64/*token num */)>,
+    pub avg_tokens_len: u64,     // 全文書の平均トークン長
+    pub max_tokens_len: u64,     // 全文書の最大トークン長
+    pub idf: Map<Vec<u8>>,       // fst::Map 形式の IDF
+    pub total_doc_count: u64,    // 文書総数
 }
 
 impl<IdType> Index<IdType>
@@ -798,19 +802,21 @@ where
     IdType: Clone + Eq + std::hash::Hash + Serialize,
     {
     
-    pub fn new_with_set(index: HashMap<IdType, CsVec<u16>>, idf: Map<Vec<u8>>, total_doc_count: u64) -> Self {
+    pub fn new_with_set(index: HashMap<IdType, (CsVec<u16>, u64/*token num */)>, idf: Map<Vec<u8>>, avg_tokens_len: u64, max_tokens_len: u64, total_doc_count: u64) -> Self {
         Self {
             index,
             idf,
+            avg_tokens_len,
+            max_tokens_len,
             total_doc_count,
         }
     }
 
-    pub fn get_index(&self) -> &HashMap<IdType, CsVec<u16>> {
+    pub fn get_index(&self) -> &HashMap<IdType, (CsVec<u16>, u64/*token num */)> {
         &self.index
     }
 
-    pub fn search(&self, query: &[&str], n: usize) -> Vec<(&IdType, f64)> {
+    pub fn search_cosin_similarity(&self, query: &[&str], n: usize) -> Vec<(&IdType, f64)> {
         //  queryのtfを生成
         let mut binding = TokenFrequency::new();
         let query_tf = binding.add_tokens(query);
@@ -830,7 +836,46 @@ where
         .index
         .iter()
         .filter_map(|(id, document)| {
-            let similarity = Self::cosine_similarity(document, &query_csvec);
+            let similarity = Self::cosine_similarity(&document.0, &query_csvec);
+            if similarity > 0.0 {
+                Some((id, similarity))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+        // 類似度で降順ソートし、上位 n 件を取得
+        similarities.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        similarities.truncate(n);
+
+        similarities
+
+    }
+
+    pub fn search_cosin_similarity_tuned(&self, query: &[&str], n: usize, b:f64) -> Vec<(&IdType, f64)> {
+        //  queryのtfを生成
+        let mut binding = TokenFrequency::new();
+        let query_tf = binding.add_tokens(query);
+
+        //  idfからqueryのtfidfを生成
+        let query_tfidf_vec: HashMap<String, u16> = query_tf.get_tfidf_hashmap_fst_parallel(&self.idf);
+        let mut sorted_query_tfidf_vec: Vec<u16> = Vec::new();
+        let mut stream = self.idf.stream();
+        while let Some((token, idf)) = stream.next() {
+            let tfidf = *query_tfidf_vec.get(str::from_utf8(token).unwrap()).unwrap_or(&0);
+            sorted_query_tfidf_vec.push(tfidf);
+        }
+        let query_csvec: CsVec<u16> = CsVec::from_vec(sorted_query_tfidf_vec);
+
+        //  cosine similarityで検索
+        let max_for_len_norm = (self.max_tokens_len as f64 / self.avg_tokens_len as f64);
+        let mut similarities: Vec<(&IdType, f64)> = self
+        .index
+        .iter()
+        .filter_map(|(id, (document, doc_len))| {
+            let len_norm = 0.5 + ((((*doc_len as f64 / self.avg_tokens_len as f64) / max_for_len_norm) - 0.5) * b);
+            let similarity = Self::cosine_similarity(document, &query_csvec) * len_norm;
             if similarity > 0.0 {
                 Some((id, similarity))
             } else {
@@ -894,6 +939,103 @@ where
     
         result
     }
+ 
+    pub fn search_bm25_tfidf(&self, query: &[&str], n: usize, k1: f64, b: f64) -> Vec<(&IdType, f64)> {
+        //  queryのtfを生成
+        let mut binding = TokenFrequency::new();
+        let query_tf = binding.add_tokens(query);
+
+        //  idfからqueryのtfidfを生成
+        let query_tfidf_vec: HashMap<String, u16> = query_tf.get_tfidf_hashmap_fst_parallel(&self.idf);
+        let mut sorted_query_tfidf_vec: Vec<u16> = Vec::new();
+        let mut stream = self.idf.stream();
+        while let Some((token, idf)) = stream.next() {
+            let tfidf = *query_tfidf_vec.get(str::from_utf8(token).unwrap()).unwrap_or(&0);
+            sorted_query_tfidf_vec.push(tfidf);
+        }
+        let query_csvec: CsVec<u16> = CsVec::from_vec(sorted_query_tfidf_vec);
+
+        //  cosine similarityで検索
+        let mut similarities: Vec<(&IdType, f64)> = self
+        .index
+        .iter()
+        .filter_map(|(id, document)| {
+            let similarity = Self::bm25_with_csvec(
+                &document.0, 
+                &query_csvec,
+                 document.1, 
+                 self.avg_tokens_len as f64, 
+                 k1, 
+                 b);
+            if similarity > 0.0 {
+                Some((id, similarity))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+        // 類似度で降順ソートし、上位 n 件を取得
+        similarities.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        similarities.truncate(n);
+
+        similarities
+
+    }
+
+    fn bm25_with_csvec(
+        query_vec: &CsVec<u16>, // クエリのTF-IDFベクトル（u16）
+        doc_vec: &CsVec<u16>,   // 文書のTF-IDFベクトル（u16）
+        doc_len: u64,           // 文書のトークン数
+        avg_doc_len: f64,       // 平均文書長
+        k1: f64,                // BM25のパラメータ
+        b: f64,                 // 文書長補正のパラメータ
+    ) -> f64 {
+        let mut score = 0.0;
+    
+        // 文書長補正を計算
+        let len_norm = 1.0 - b + b * (doc_len as f64 / avg_doc_len);
+    
+        // `u16` の最大値
+        let max_u16 = u16::MAX as f64;
+    
+        // ベクトルのインデックスと値を効率的に走査
+        let mut query_iter = query_vec.iter();
+        let mut doc_iter = doc_vec.iter();
+    
+        let mut query = query_iter.next();
+        let mut doc = doc_iter.next();
+    
+        while let (Some((query_index, &query_value)), Some((doc_index, &doc_value))) = (query, doc) {
+            match query_index.cmp(&doc_index) {
+                std::cmp::Ordering::Equal => {
+                    // 両方に存在するトークンの場合
+                    let tf_f = doc_value as f64 / max_u16; // 文書内TF-IDF
+                    let idf_f = query_value as f64 / max_u16; // クエリのTF-IDF（IDF含む）
+    
+                    let numerator = tf_f * (k1 + 1.0);
+                    let denominator = tf_f + k1 * len_norm;
+    
+                    score += idf_f * (numerator / denominator);
+    
+                    // 次の要素へ
+                    query = query_iter.next();
+                    doc = doc_iter.next();
+                }
+                std::cmp::Ordering::Less => {
+                    // クエリにしか存在しないトークン
+                    query = query_iter.next();
+                }
+                std::cmp::Ordering::Greater => {
+                    // 文書にしか存在しないトークン
+                    doc = doc_iter.next();
+                }
+            }
+        }
+    
+        score
+    }
+    
 
     
     
@@ -1003,6 +1145,9 @@ where
     }
 
     pub fn generate_index(&self) -> Index<IdType> {
+        // 統計の初期化
+        let mut total_doc_tokens_len: u128 = 0;
+        let mut max_doc_tokens_len: u64 = 0;
         //  idf のfst生成
         let mut builder = MapBuilder::memory();
         let mut idf_vec = self.idf.get_idf_vector_ref_parallel(self.total_doc_count);
@@ -1013,7 +1158,7 @@ where
         let idf = builder.into_map();
 
         //  tf_idfの生成
-        let mut index: HashMap<IdType, CsVec<u16>> = HashMap::new();
+        let mut index: HashMap<IdType, (CsVec<u16>, u64)> = HashMap::new();
         for (id, document) in self.documents.iter() {
             let tf_idf_vec: HashMap<String, u16> = document.tokens.get_tfidf_hashmap_fst_parallel(&idf);
             let mut tf_idf_sort_vec: Vec<u16> = Vec::new();
@@ -1023,12 +1168,18 @@ where
                 tf_idf_sort_vec.push(tf_idf);
             }
 
-
             let tf_idf_csvec: CsVec<u16> = CsVec::from_vec(tf_idf_sort_vec);
-            index.insert(id.clone(), tf_idf_csvec);
+            let doc_tokens_len = document.tokens.get_total_token_count();
+            total_doc_tokens_len += doc_tokens_len as u128;
+            if doc_tokens_len > max_doc_tokens_len {
+                max_doc_tokens_len = doc_tokens_len;
+            }
+            index.insert(id.clone(), (tf_idf_csvec, doc_tokens_len));
         }
 
+        let avg_total_doc_tokens_len = (total_doc_tokens_len  / self.total_doc_count as u128) as u64;
+
         //  indexの返却
-        Index::new_with_set(index, idf, self.total_doc_count)
+        Index::new_with_set(index, idf, avg_total_doc_tokens_len, max_doc_tokens_len, self.total_doc_count)
     }
 }
