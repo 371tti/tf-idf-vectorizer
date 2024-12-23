@@ -1,5 +1,5 @@
 use core::str;
-use std::{collections::{hash_map::Keys, HashMap, HashSet}, f32::consts::E};
+use std::{collections::{hash_map::Keys, HashMap, HashSet}, f32::consts::E, fmt::Debug, hash::Hash, sync::{atomic::{AtomicU64, Ordering}, Arc, Mutex}};
 
 use fst::{Map, MapBuilder, Streamer};
 use serde::{Deserialize, Serialize};
@@ -429,7 +429,7 @@ impl TokenFrequency {
     }
 
     pub fn tfidf_calc_as_u16(tf : u16, idf: u16) -> u16 {
-        let normalized_value = (tf as f32 * idf as f32) / u16::MAX as f32;
+        let normalized_value = (tf as f64 * idf as f64) / u32::MAX as f64;
         // 0～65535 にスケール
         (normalized_value * 65535.0).ceil() as u16
     }
@@ -800,7 +800,7 @@ where
 impl<IdType> Index<IdType>
 where
     IdType: Clone + Eq + std::hash::Hash + Serialize,
-    {
+{
     
     pub fn new_with_set(index: HashMap<IdType, (CsVec<u16>, u64/*token num */)>, idf: Map<Vec<u8>>, avg_tokens_len: u64, max_tokens_len: u64, total_doc_count: u64) -> Self {
         Self {
@@ -941,6 +941,7 @@ where
     }
  
     pub fn search_bm25_tfidf(&self, query: &[&str], n: usize, k1: f64, b: f64) -> Vec<(&IdType, f64)> {
+        println!("{:?}", query);
         //  queryのtfを生成
         let mut binding = TokenFrequency::new();
         let query_tf = binding.add_tokens(query);
@@ -961,8 +962,8 @@ where
         .iter()
         .filter_map(|(id, document)| {
             let similarity = Self::bm25_with_csvec(
-                &document.0, 
                 &query_csvec,
+                &document.0,
                  document.1, 
                  self.avg_tokens_len as f64, 
                  k1, 
@@ -994,10 +995,10 @@ where
         let mut score = 0.0;
     
         // 文書長補正を計算
-        let len_norm = 1.0 - b + b * (doc_len as f64 / avg_doc_len);
+        let len_norm: f64 = 1.0 - b + b * (doc_len as f64 / avg_doc_len);
     
         // `u16` の最大値
-        let max_u16 = u16::MAX as f64;
+        let max_u16: f64 = u16::MAX as f64;
     
         // ベクトルのインデックスと値を効率的に走査
         let mut query_iter = query_vec.iter();
@@ -1067,7 +1068,7 @@ impl Document {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DocumentAnalyzer<IdType>
 where
-    IdType: Eq + std::hash::Hash + Clone + Serialize,
+    IdType: Eq + std::hash::Hash + Clone + Serialize + Send + Sync,
 {
     pub documents: HashMap<IdType, Document>,
     pub idf: TokenFrequency,
@@ -1076,7 +1077,7 @@ where
 
 impl<IdType> DocumentAnalyzer<IdType>
 where
-    IdType: Eq + std::hash::Hash + Clone + Serialize,
+    IdType: Eq + std::hash::Hash + Clone + Serialize + Send + Sync,
 {
 
     pub fn new() -> Self {
@@ -1146,40 +1147,60 @@ where
 
     pub fn generate_index(&self) -> Index<IdType> {
         // 統計の初期化
-        let mut total_doc_tokens_len: u128 = 0;
-        let mut max_doc_tokens_len: u64 = 0;
-        //  idf のfst生成
+        let total_doc_tokens_len = Arc::new(AtomicU64::new(0));
+        let max_doc_tokens_len = Arc::new(AtomicU64::new(0));
+        let now_prosessing = Arc::new(AtomicU64::new(0));
+    
+        // idf のfst生成
         let mut builder = MapBuilder::memory();
         let mut idf_vec = self.idf.get_idf_vector_ref_parallel(self.total_doc_count);
         idf_vec.sort_by(|a, b| a.0.cmp(b.0));
         for (token, idf) in idf_vec {
             builder.insert(token.as_bytes(), idf as u64).unwrap();
         }
-        let idf = builder.into_map();
-
-        //  tf_idfの生成
-        let mut index: HashMap<IdType, (CsVec<u16>, u64)> = HashMap::new();
-        for (id, document) in self.documents.iter() {
-            let tf_idf_vec: HashMap<String, u16> = document.tokens.get_tfidf_hashmap_fst_parallel(&idf);
+        let idf = Arc::new(builder.into_map());
+    
+        // 並列処理用のスレッドセーフなIndex
+        let index = Arc::new(Mutex::new(HashMap::new()));
+    
+        // ドキュメントごとの処理を並列化
+        self.documents.par_iter().for_each(|(id, document)| {
+            now_prosessing.fetch_add(1, Ordering::SeqCst);
+            println!("{} / {}", now_prosessing.load(Ordering::SeqCst), self.total_doc_count);
             let mut tf_idf_sort_vec: Vec<u16> = Vec::new();
+    
+            let tf_idf_vec: HashMap<String, u16> =
+                document.tokens.get_tfidf_hashmap_fst_parallel(&idf);
+    
             let mut stream = idf.stream();
             while let Some((token, _)) = stream.next() {
                 let tf_idf = *tf_idf_vec.get(str::from_utf8(token).unwrap()).unwrap_or(&0);
                 tf_idf_sort_vec.push(tf_idf);
             }
-
+    
             let tf_idf_csvec: CsVec<u16> = CsVec::from_vec(tf_idf_sort_vec);
             let doc_tokens_len = document.tokens.get_total_token_count();
-            total_doc_tokens_len += doc_tokens_len as u128;
-            if doc_tokens_len > max_doc_tokens_len {
-                max_doc_tokens_len = doc_tokens_len;
-            }
-            index.insert(id.clone(), (tf_idf_csvec, doc_tokens_len));
-        }
-
-        let avg_total_doc_tokens_len = (total_doc_tokens_len  / self.total_doc_count as u128) as u64;
-
-        //  indexの返却
-        Index::new_with_set(index, idf, avg_total_doc_tokens_len, max_doc_tokens_len, self.total_doc_count)
+    
+            total_doc_tokens_len.fetch_add(doc_tokens_len, Ordering::SeqCst);
+    
+            max_doc_tokens_len.fetch_max(doc_tokens_len, Ordering::SeqCst);
+    
+            let mut index_guard = index.lock().unwrap();
+            index_guard.insert(id.clone(), (tf_idf_csvec, doc_tokens_len));
+        });
+    
+        // 統計計算
+        let avg_total_doc_tokens_len = (total_doc_tokens_len.load(Ordering::SeqCst)
+            / self.total_doc_count as u64) as u64;
+        let max_doc_tokens_len = max_doc_tokens_len.load(Ordering::SeqCst);
+    
+        // indexの返却
+        Index::new_with_set(
+            Arc::try_unwrap(index).unwrap_or(HashMap::new().into()).into_inner().unwrap(),
+            Arc::try_unwrap(idf).unwrap(),
+            avg_total_doc_tokens_len,
+            max_doc_tokens_len,
+            self.total_doc_count,
+        )
     }
 }

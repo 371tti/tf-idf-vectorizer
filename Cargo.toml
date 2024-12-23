@@ -1,11 +1,7 @@
 [package]
-name = "tf-idf-vectorizer"
+name = "tf-idf-vectorizer-t"
 version = "0.1.0"
 edition = "2021"
-
-[[bench]]
-name = "benchmark"
-harness = false
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -19,5 +15,5 @@ serde_json = "1.0"
 reqwest = { version = "0.11", features = ["blocking"] }
 criterion = "0.4"
 sudachi = { path = "sudachi.rs/sudachi" }
-
+ctrlc = "3.2"
 

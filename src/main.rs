@@ -1,41 +1,41 @@
+use rayon::prelude::*;
 use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::{self, BufReader, Read, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
-use tf_idf_vectorizer::token::DocumentAnalyzer;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+use tf_idf_vectorizer_t::token::DocumentAnalyzer;
 use std::time::Instant;
 
 const MAX_SUDACHI_INPUT_SIZE: usize = 49100;
+const MAX_FILES_TO_PROCESS: usize = 20000;
 
-// 記号や不要なトークンをブラックリストで定義
+// ブラックリスト定義
 fn blacklist() -> HashSet<String> {
-    [
+    let symbols = [
         ".", ",", "!", "?", ":", ";", "\"", "'", "(", ")", "[", "]", "{", "}", "-", "_", "/", "\\",
         "|", "@", "#", "$", "%", "^", "&", "*", "+", "=", "~", "`", "",
-    ]
-    .iter()
-    .map(|s| s.to_string())
-    .collect()
-}
+    ];
 
-fn fetch_text_from_directory(dir_path: &str) -> Vec<(String, String)> {
-    let mut articles = Vec::new();
-    let dir = Path::new(dir_path);
-
-    for entry in fs::read_dir(dir).expect("Failed to read directory") {
-        let entry = entry.expect("Failed to read entry");
-        let path = entry.path();
-        if path.is_file() {
-            let file_name = path.file_name().unwrap().to_string_lossy().to_string();
-            let mut file = File::open(&path).expect("Failed to open file");
-            let mut content = String::new();
-            file.read_to_string(&mut content).expect("Failed to read file content");
-            articles.push((file_name, content));
-        }
-    }
-
-    articles
+    let stopwords_english = [
+        "a", "an", "the", "and", "or", "but", "if", "then", "else", "when", "where", "why", "how",
+        "is", "was", "were", "be", "been", "are", "am", "do", "does", "did", "has", "have", "had",
+        // 他の英語のストップワード
+    ];
+    let stopwords_japanese = [
+        "の", "に", "を", "は", "が", "で", "から", "まで", "より", "と", "や", "し", "そして", "けれども",
+        "しかし", "だから", "それで", "また", "つまり", "例えば", "なぜ", "どうして", "どの", "どれ", "それ",
+        "これ", "あれ", "ここ", "そこ", "あそこ", "どこ", "私", "僕", "俺", "あなた", "彼", "彼女",
+        // 他の日本語のストップワード
+    ];
+    symbols
+        .iter()
+        .chain(stopwords_english.iter())
+        .chain(stopwords_japanese.iter())
+        .map(|s| s.to_string())
+        .collect()
 }
 
 fn split_text_by_bytes(text: &str, max_size: usize) -> Vec<String> {
@@ -114,64 +114,78 @@ fn tokenize_with_sudachi(text: &str, mode: &str) -> Vec<String> {
 
     tokens
 }
-
-
+// トークンのフィルタリング
 fn filter_tokens(tokens: Vec<String>, blacklist: &HashSet<String>) -> Vec<String> {
     tokens
         .into_iter()
-        .filter(|token| {
-            // トークンがブラックリストに含まれていないかつ空白や改行のみではない
-            !blacklist.contains(token) && !token.trim().is_empty()
-        })
+        .filter(|token| !blacklist.contains(token) && !token.trim().is_empty())
         .collect()
 }
 
-
+// メイン処理
 fn main() {
-    let dir_path = "C:\\RustBuilds\\IDIS\\IDIS_rust\\tf-idf-vectorizer\\popular_wikipedia_articles";
-    let articles = fetch_text_from_directory(dir_path);
-
-    let mut analyzer = DocumentAnalyzer::<String>::new();
+    let dir_path = "z:\\D\\dev\\web_dev\\idis_v2\\wikipedia_all_articles_fast";
     let blacklist = blacklist();
+    let mut analyzer = Arc::new(Mutex::new(DocumentAnalyzer::<String>::new()));
+    let file_counter = Arc::new(AtomicUsize::new(0));
+    
+    // ファイルを逐次処理しつつ並列化
+    fs::read_dir(dir_path)
+        .expect("Failed to read directory")
+        .par_bridge() // Rayonによる並列化
+        .try_for_each(|entry| -> Result<(), ()> {
+            let entry = entry.expect("Failed to read entry");
+            let path = entry.path();
 
-    // ファイルの内容をインデックス化
-    for (file_name, content) in articles {
-        println!("Processing file: {}", file_name);
+            let file_count = file_counter.load(Ordering::Relaxed);
 
-        let mut tokens = tokenize_with_sudachi(&content, "B");
-        tokens.extend(tokenize_with_sudachi(&content, "C"));
+            if file_count >= MAX_FILES_TO_PROCESS {
+            return Err(()); // すでに指定件数を超えている場合は処理をスキップ
+            }
 
-        let tokens = filter_tokens(tokens, &blacklist);
-        let token_refs: Vec<&str> = tokens.iter().map(AsRef::as_ref).collect();
-        analyzer.add_document(file_name, &token_refs, None);
-    }
+            if path.is_file() {
+            let file_name = path.file_name().unwrap().to_string_lossy().to_string();
+            let file = File::open(&path).expect("Failed to open file");
+            let mut buf_reader = BufReader::new(file);
+            let mut content = String::new();
 
+            buf_reader
+                .read_to_string(&mut content)
+                .expect("Failed to read file");
+
+            println!("Processing file: {} {}", file_count, file_name);
+            let mut tokens = tokenize_with_sudachi(&content, "B");
+            tokens = filter_tokens(tokens, &blacklist);
+
+            let token_refs: Vec<&str> = tokens.iter().map(AsRef::as_ref).collect();
+            let mut analyzer = analyzer.lock().unwrap();
+            analyzer.add_document(file_name, &token_refs, None);
+
+            // ファイルカウンターを増加
+            file_counter.fetch_add(1, Ordering::Relaxed);
+            }
+
+            Ok(())
+        }).ok(); // エラーを無視して終了
 
     // インデックスの生成
     println!("Generating index...");
-    let index = analyzer.generate_index();
+    let index = analyzer.lock().unwrap().generate_index();
+    drop(analyzer);
 
     loop {
         println!("Enter your search query:");
         let mut query = String::new();
         io::stdin().read_line(&mut query).expect("Failed to read line");
 
-        let query_tokens = tokenize_with_sudachi(&query, "C");
+        let query_tokens = tokenize_with_sudachi(&query, "B");
         let query_tokens = filter_tokens(query_tokens, &blacklist);
         let query_refs: Vec<&str> = query_tokens.iter().map(AsRef::as_ref).collect();
 
         println!("Performing search...");
-
-        // 時間測定開始
         let start = Instant::now();
-
-        // 検索処理
-        let results = index.search_bm25_tfidf(&query_refs, 100, 1.2, 0.75);
-
-        // 時間測定終了
+        let results = index.search_bm25_tfidf(&query_refs, 100, 1.5, 0.0 as f64);
         let duration = start.elapsed();
-
-        // 結果の表示
 
         println!("Search results (Time taken: {:.2?}):", duration);
         for (doc_id, similarity) in results {
