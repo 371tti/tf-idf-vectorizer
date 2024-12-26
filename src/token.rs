@@ -424,20 +424,21 @@ impl TokenFrequency {
             .collect()
     }
 
+    #[inline]
     pub fn tfidf_calc(tf : f64, idf: f64) -> f64 {
         tf * idf
     }
 
-    pub fn tfidf_calc_as_u16(tf : u16, idf: u16) -> u16 {
-        let normalized_value = (tf as f64 * idf as f64) / u32::MAX as f64;
-        // 0～65535 にスケール
-        (normalized_value * 65535.0).ceil() as u16
+    #[inline]
+    pub fn tfidf_calc_as_u16(tf: u16, idf: u16) -> u16 {
+        let product = tf as u32 * idf as u32;
+        ((product + 65_535) / 65_536) as u16
     }
 
+    #[inline]
     pub fn tfidf_calc_as_u32(tf : u32, idf: u32) -> u32 {
-        let normalized_value = (tf as f64 * idf as f64) / u32::MAX as f64;
-        // 0～4294967295 にスケール
-        (normalized_value * 4294967295.0).ceil() as u32
+        let product = tf as u64 * idf as u64;
+        ((product + 4_294_967_295) / 4_294_967_296) as u32
     }
 
     pub fn get_tfidf_vector(&self, idf_map: &HashMap<String, u16>) -> Vec<(String, u16)> {
@@ -816,7 +817,7 @@ where
         &self.index
     }
 
-    pub fn search_cosin_similarity(&self, query: &[&str], n: usize) -> Vec<(&IdType, f64)> {
+    pub fn search_cos_similarity(&self, query: &[&str], n: usize) -> Vec<(&IdType, f64)> {
         //  queryのtfを生成
         let mut binding = TokenFrequency::new();
         let query_tf = binding.add_tokens(query);
@@ -831,12 +832,12 @@ where
         }
         let query_csvec: CsVec<u16> = CsVec::from_vec(sorted_query_tfidf_vec);
 
-        //  cosine similarityで検索
+        //  cos similarityで検索
         let mut similarities: Vec<(&IdType, f64)> = self
         .index
         .iter()
         .filter_map(|(id, document)| {
-            let similarity = Self::cosine_similarity(&document.0, &query_csvec);
+            let similarity = Self::cos_similarity(&document.0, &query_csvec);
             if similarity > 0.0 {
                 Some((id, similarity))
             } else {
@@ -853,7 +854,7 @@ where
 
     }
 
-    pub fn search_cosin_similarity_tuned(&self, query: &[&str], n: usize, b:f64) -> Vec<(&IdType, f64)> {
+    pub fn search_cos_similarity_tuned(&self, query: &[&str], n: usize, b:f64) -> Vec<(&IdType, f64)> {
         //  queryのtfを生成
         let mut binding = TokenFrequency::new();
         let query_tf = binding.add_tokens(query);
@@ -868,14 +869,14 @@ where
         }
         let query_csvec: CsVec<u16> = CsVec::from_vec(sorted_query_tfidf_vec);
 
-        //  cosine similarityで検索
+        //  cos similarityで検索
         let max_for_len_norm = (self.max_tokens_len as f64 / self.avg_tokens_len as f64);
         let mut similarities: Vec<(&IdType, f64)> = self
         .index
         .iter()
         .filter_map(|(id, (document, doc_len))| {
             let len_norm = 0.5 + ((((*doc_len as f64 / self.avg_tokens_len as f64) / max_for_len_norm) - 0.5) * b);
-            let similarity = Self::cosine_similarity(document, &query_csvec) * len_norm;
+            let similarity = Self::cos_similarity(document, &query_csvec) * len_norm;
             if similarity > 0.0 {
                 Some((id, similarity))
             } else {
@@ -892,7 +893,7 @@ where
 
     }
 
-    fn cosine_similarity(vec_a: &CsVec<u16>, vec_b: &CsVec<u16>) -> f64 {
+    fn cos_similarity(vec_a: &CsVec<u16>, vec_b: &CsVec<u16>) -> f64 {
         // 内積を計算
         let dot_product = Self::dot_product_u16(vec_a, vec_b) as f64;
         
@@ -956,12 +957,12 @@ where
         }
         let query_csvec: CsVec<u16> = CsVec::from_vec(sorted_query_tfidf_vec);
 
-        //  cosine similarityで検索
+        //  cos similarityで検索
         let mut similarities: Vec<(&IdType, f64)> = self
         .index
         .iter()
         .filter_map(|(id, document)| {
-            let similarity = Self::bm25_with_csvec(
+            let similarity = Self::bm25_with_csvec_optimized(
                 &query_csvec,
                 &document.0,
                  document.1, 
@@ -984,7 +985,7 @@ where
 
     }
 
-    fn bm25_with_csvec(
+    pub fn bm25_with_csvec_optimized(
         query_vec: &CsVec<u16>, // クエリのTF-IDFベクトル（u16）
         doc_vec: &CsVec<u16>,   // 文書のTF-IDFベクトル（u16）
         doc_len: u64,           // 文書のトークン数
@@ -995,53 +996,52 @@ where
         let mut score = 0.0;
     
         // 文書長補正を計算
-        let len_norm: f64 = 1.0 - b + b * (doc_len as f64 / avg_doc_len);
+        let len_norm = 1.0 - b + b * (doc_len as f64 / avg_doc_len);
     
-        // `u16` の最大値
-        let max_u16: f64 = u16::MAX as f64;
+        // 定数の事前計算
+        const MAX_U16_AS_F64: f64 = 1.0 / (u16::MAX as f64); // 1 / 65535.0
+        let k1_len_norm = k1 * len_norm;
     
-        // ベクトルのインデックスと値を効率的に走査
-        let mut query_iter = query_vec.iter();
-        let mut doc_iter = doc_vec.iter();
+        // クエリと文書のインデックスおよびデータ配列に直接アクセス
+        let query_indices = query_vec.indices();
+        let query_data = query_vec.data();
+        let doc_indices = doc_vec.indices();
+        let doc_data = doc_vec.data();
     
-        let mut query = query_iter.next();
-        let mut doc = doc_iter.next();
+        let mut q = 0; // クエリベクトルのインデックス
+        let mut d = 0; // 文書ベクトルのインデックス
+        let q_len = query_vec.nnz();
+        let d_len = doc_vec.nnz();
     
-        while let (Some((query_index, &query_value)), Some((doc_index, &doc_value))) = (query, doc) {
-            match query_index.cmp(&doc_index) {
-                std::cmp::Ordering::Equal => {
-                    // 両方に存在するトークンの場合
-                    let tf_f = doc_value as f64 / max_u16; // 文書内TF-IDF
-                    let idf_f = query_value as f64 / max_u16; // クエリのTF-IDF（IDF含む）
+        // クエリと文書のインデックスを走査
+        while q < q_len && d < d_len {
+            let q_idx = query_indices[q];
+            let d_idx = doc_indices[d];
     
-                    let numerator = tf_f * (k1 + 1.0);
-                    let denominator = tf_f + k1 * len_norm;
+            if q_idx == d_idx {
+                // クエリと文書の両方に存在するトークン
+                let tf_f = (doc_data[d] as f64) * MAX_U16_AS_F64; // 文書内TF-IDF
+                let idf_f = (query_data[q] as f64) * MAX_U16_AS_F64; // クエリのTF-IDF（IDF含む）
     
-                    score += idf_f * (numerator / denominator);
+                // BM25のスコア計算
+                let numerator = tf_f * (k1 + 1.0);
+                let denominator = tf_f + k1_len_norm;
+                score += idf_f * (numerator / denominator);
     
-                    // 次の要素へ
-                    query = query_iter.next();
-                    doc = doc_iter.next();
-                }
-                std::cmp::Ordering::Less => {
-                    // クエリにしか存在しないトークン
-                    query = query_iter.next();
-                }
-                std::cmp::Ordering::Greater => {
-                    // 文書にしか存在しないトークン
-                    doc = doc_iter.next();
-                }
+                q += 1;
+                d += 1;
+            } else if q_idx < d_idx {
+                // クエリにしか存在しないトークン
+                q += 1;
+            } else {
+                // 文書にしか存在しないトークン
+                d += 1;
             }
         }
     
-        score
+            score
+        }
     }
-    
-
-    
-    
-}
-
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Document {

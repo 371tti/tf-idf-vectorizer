@@ -10,7 +10,7 @@ use tf_idf_vectorizer_t::token::DocumentAnalyzer;
 use std::time::Instant;
 
 const MAX_SUDACHI_INPUT_SIZE: usize = 49100;
-const MAX_FILES_TO_PROCESS: usize = 20000;
+const MAX_FILES_TO_PROCESS: usize = 100000;
 
 // ブラックリスト定義
 fn blacklist() -> HashSet<String> {
