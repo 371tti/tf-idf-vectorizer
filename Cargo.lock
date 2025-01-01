@@ -1509,7 +1509,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23d434d3f8967a09480fb04132ebe0a3e088c173e6d0ee7897abbdf4eab0f8b9"
 
 [[package]]
-name = "tf-idf-vectorizer-t"
+name = "tf-idf-vectorizer"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
