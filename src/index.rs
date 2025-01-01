@@ -131,13 +131,17 @@ where
     }
 
     // ---------------------------------------------------------------------------------------------
-    // 公開メソッド: Index の合成
+    // 公開メソッド: Index の合成 
     // ---------------------------------------------------------------------------------------------
 
-    pub fn synthesize_index(&self, other: &Self) -> Self {
+    pub fn synthesize_index(&self, other: &Self /* otherを優先 */) -> Self {
         let new_max_token_len = self.max_tokens_len.max(other.max_tokens_len);
-        let new_avg_token_len = (self.avg_tokens_len + other.avg_tokens_len) / 2;
         let new_total_doc_count = self.total_doc_count + other.total_doc_count;
+        // 加重平均で平均トークン長を再計算
+        let sum_self = self.avg_tokens_len as u128 * self.total_doc_count as u128;
+        let sum_other = other.avg_tokens_len as u128 * other.total_doc_count as u128;
+        let new_avg_token_len =
+            ((sum_self + sum_other) / new_total_doc_count as u128) as u64;
 
         //  2つのidfを合成
         let mut builder = MapBuilder::memory();
@@ -193,8 +197,33 @@ where
         }
         let new_idf = builder.into_map();
 
+        let new_this_index: HashMap<IdType, (CsVec<u16>, u64)> = self.index.iter().map(|(id, (doc_vec, doc_len))| {
+            let new_doc_csvec = CsVec::new(
+                doc_vec.dim(),
+                this_skip_index_csvec.clone(),
+                doc_vec.data().to_vec(),
+            );
+            (id.clone(), (new_doc_csvec, *doc_len))
+        }).collect();
 
-        let mut new_index = 
+        let new_other_index: HashMap<IdType, (CsVec<u16>, u64)> = other.index.iter().map(|(id, (doc_vec, doc_len))| {
+            let new_doc_csvec = CsVec::new(
+                doc_vec.dim(),
+                other_skip_index_csvec.clone(),
+                doc_vec.data().to_vec(),
+            );
+            (id.clone(), (new_doc_csvec, *doc_len))
+        }).collect();
+
+        let new_index = new_this_index.into_iter().chain(new_other_index).collect();
+
+        Index::new_with_set(
+            new_index,
+            new_idf,
+            new_avg_token_len,
+            new_max_token_len,
+            new_total_doc_count,
+        )
     }
 
     // ---------------------------------------------------------------------------------------------
