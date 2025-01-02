@@ -6,11 +6,12 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use tf_idf_vectorizer_t::token::DocumentAnalyzer;
 use std::time::Instant;
 
+use crate::analyzer::DocumentAnalyzer;
+
 const MAX_SUDACHI_INPUT_SIZE: usize = 49100;
-const MAX_FILES_TO_PROCESS: usize = 100000;
+const MAX_FILES_TO_PROCESS: usize = 10;
 
 // ブラックリスト定義
 fn blacklist() -> HashSet<String> {

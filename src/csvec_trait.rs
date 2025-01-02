@@ -46,3 +46,16 @@ where
         CsVec::new(indices.len(), indices, values)
     }
 }
+
+pub trait CsVecExt {
+    fn indices_mut(&mut self) -> &mut [usize];
+}
+
+impl<T> CsVecExt for CsVec<T> {
+    fn indices_mut(&mut self) -> &mut [usize] {
+        // CsVecの内部構造にアクセスして、インデックスの可変参照を返す
+        unsafe {
+            std::slice::from_raw_parts_mut(self.indices().as_ptr() as *mut usize, self.indices().len())
+        }
+    }
+}

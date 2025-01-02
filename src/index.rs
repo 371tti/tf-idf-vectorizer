@@ -2,11 +2,10 @@ use std::collections::HashMap;
 use std::str;
 
 use fst::{Map, MapBuilder, Streamer};
-use rayon::vec;
 use serde::Serialize;
 use sprs::CsVec;
 
-use crate::{csvec_trait::FromVec, token::TokenFrequency};
+use crate::{csvec_trait::{CsVecExt, FromVec}, token::TokenFrequency};
 
 pub struct Index<IdType>
 where
@@ -134,7 +133,7 @@ where
     // 公開メソッド: Index の合成 
     // ---------------------------------------------------------------------------------------------
 
-    pub fn synthesize_index(&self, other: &Self /* otherを優先 */) -> Self {
+    pub fn synthesize_index(&mut self, mut other: Self /* otherを優先 */) {
         let new_max_token_len = self.max_tokens_len.max(other.max_tokens_len);
         let new_total_doc_count = self.total_doc_count + other.total_doc_count;
         // 加重平均で平均トークン長を再計算
@@ -143,87 +142,97 @@ where
         let new_avg_token_len =
             ((sum_self + sum_other) / new_total_doc_count as u128) as u64;
 
-        //  2つのidfを合成
+        //  値の準備
         let mut builder = MapBuilder::memory();
         let mut this_stream = self.idf.stream();
         let mut other_stream = other.idf.stream();
         let mut do_pop_this = true;
         let mut do_pop_other = true;
-        let mut this_skip_index_csvec: Vec<usize> = vec![0];
-        let mut other_skip_index_csvec: Vec<usize> = vec![0];
+        let mut this_index_shift: usize = 0;
+        let mut other_index_shift: usize = 0;
+        let mut this_index_csvec_index: usize = 0;
+        let mut other_index_csvec_index: usize = 0;
+        let mut this_index_csvecs_indices_index_cash: Vec<usize> = Vec::with_capacity(self.index.len());
+        let mut other_index_csvecs_indices_index_cash: Vec<usize> = Vec::with_capacity(other.index.len());
+        this_index_csvecs_indices_index_cash.resize(self.index.len(), 0);
+        other_index_csvecs_indices_index_cash.resize(other.index.len(), 0);
+
+
+        //  両方のidfを合成, csvecのindexを再計算
         loop {
-            let next = if do_pop_this { this_stream.next() } else { None };
+            let next_this = if do_pop_this { this_stream.next() } else { None };
             let next_other = if do_pop_other { other_stream.next() } else { None };
-            match (next, next_other) {
+            match (next_this, next_other) {
                 (None, None) => break,
                 (None, Some(other)) => {
                     let (other_token, other_idf) = other;
                     builder.insert(other_token, other_idf).unwrap();
                     do_pop_this = false;
                     do_pop_other = true;
-                    other_skip_index_csvec.push(other_skip_index_csvec.last().copied().unwrap() + 1);
                 },
                 (Some(this), None) => {
                     let (this_token, this_idf) = this;
                     builder.insert(this_token, this_idf).unwrap();
                     do_pop_this = true;
                     do_pop_other = false;
-                    this_skip_index_csvec.push(this_skip_index_csvec.last().copied().unwrap() + 1);
                 },
                 (Some(this), Some(other)) => {
                     let (this_token, this_idf) = this;
                     let (other_token, other_idf) = other;
                     if this_token < other_token {
                         builder.insert(this_token, this_idf).unwrap();
-                        do_pop_this = true;
-                        do_pop_other = false;
-                        this_skip_index_csvec.push(this_skip_index_csvec.last().copied().unwrap() + 1);
-                        other_skip_index_csvec.first_mut().map(|x| *x + 1);
+                        do_pop_this = true; this_index_csvec_index += 1;
+                        do_pop_other = false; other_index_shift += 1;
                     } else if this_token == other_token {
                         builder.insert(this_token, this_idf.max(other_idf)).unwrap();
-                        do_pop_this = true;
-                        do_pop_other = true;
-                        this_skip_index_csvec.push(this_skip_index_csvec.last().copied().unwrap() + 1);
-                        other_skip_index_csvec.push(other_skip_index_csvec.last().copied().unwrap() + 1);
+                        do_pop_this = true; this_index_csvec_index += 1;
+                        do_pop_other = true; other_index_csvec_index += 1;
                     } else {
                         builder.insert(other_token, other_idf).unwrap();
-                        do_pop_this = false;
-                        do_pop_other = true;
-                        this_skip_index_csvec.first_mut().map(|x| *x + 1);
-                        other_skip_index_csvec.push(other_skip_index_csvec.last().copied().unwrap() + 1);
+                        do_pop_this = false; this_index_shift += 1;
+                        do_pop_other = true; other_index_csvec_index += 1;
                     }
                 },
             }
+            self.index.iter_mut().enumerate().for_each(|(i, (_id, (doc_vec, _doc_len)))| {
+                let vec_indices_index = this_index_csvecs_indices_index_cash.get_mut(i).unwrap();
+                loop {
+                    let index_csvec_index = doc_vec.indices_mut()/* unsafe（こんどCsVecけしてスパースVecの独自実装作る */.get_mut(*vec_indices_index).unwrap();
+                    if *index_csvec_index > this_index_csvec_index {
+                        break;
+                    } else if *index_csvec_index == this_index_csvec_index {
+                        *index_csvec_index += this_index_shift;
+                        *vec_indices_index += 1;
+                        break;
+                    } else {
+                        *vec_indices_index += 1;
+                    }
+                }
+            });
+            other.index.iter_mut().enumerate().for_each(|(i, (_id, (doc_vec, _doc_len)))| {
+                let vec_indices_index = other_index_csvecs_indices_index_cash.get_mut(i).unwrap();
+                loop {
+                    let index_csvec_index = doc_vec.indices_mut()./* unsafe（こんどCsVecけしてスパースVecの独自実装作る */get_mut(*vec_indices_index).unwrap();
+                    if *index_csvec_index > other_index_csvec_index {
+                        break;
+                    } else if *index_csvec_index == other_index_csvec_index {
+                        *index_csvec_index += other_index_shift;
+                        *vec_indices_index += 1;
+                        break;
+                    } else {
+                        *vec_indices_index += 1;
+                    }
+                }
+            });
         }
         let new_idf = builder.into_map();
 
-        let new_this_index: HashMap<IdType, (CsVec<u16>, u64)> = self.index.iter().map(|(id, (doc_vec, doc_len))| {
-            let new_doc_csvec = CsVec::new(
-                doc_vec.dim(),
-                this_skip_index_csvec.clone(),
-                doc_vec.data().to_vec(),
-            );
-            (id.clone(), (new_doc_csvec, *doc_len))
-        }).collect();
-
-        let new_other_index: HashMap<IdType, (CsVec<u16>, u64)> = other.index.iter().map(|(id, (doc_vec, doc_len))| {
-            let new_doc_csvec = CsVec::new(
-                doc_vec.dim(),
-                other_skip_index_csvec.clone(),
-                doc_vec.data().to_vec(),
-            );
-            (id.clone(), (new_doc_csvec, *doc_len))
-        }).collect();
-
-        let new_index = new_this_index.into_iter().chain(new_other_index).collect();
-
-        Index::new_with_set(
-            new_index,
-            new_idf,
-            new_avg_token_len,
-            new_max_token_len,
-            new_total_doc_count,
-        )
+        //  インデックスの合成
+        self.index.extend(other.index);
+        self.avg_tokens_len = new_avg_token_len;
+        self.max_tokens_len = new_max_token_len;
+        self.idf = new_idf;
+        self.total_doc_count = new_total_doc_count;
     }
 
     // ---------------------------------------------------------------------------------------------
