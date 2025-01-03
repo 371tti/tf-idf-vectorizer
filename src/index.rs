@@ -7,6 +7,7 @@ use sprs::CsVec;
 
 use crate::{csvec_trait::{CsVecExt, FromVec}, token::TokenFrequency};
 
+#[derive(Clone, Debug)]
 pub struct Index<IdType>
 where
     IdType: Clone + Eq + std::hash::Hash + Serialize,
@@ -132,107 +133,171 @@ where
     // ---------------------------------------------------------------------------------------------
     // 公開メソッド: Index の合成 
     // ---------------------------------------------------------------------------------------------
+    /// 合成: otherを優先して self にマージする
+    pub fn synthesize_index(&mut self, other: Self) {
+        // 1) IDFを合成して「新IDF + old->newの対応表」を得る
+        let (new_idf, self_mapping, other_mapping) = Self::merge_idf_and_build_mapping(&self.idf, &other.idf);
 
-    pub fn synthesize_index(&mut self, mut other: Self /* otherを優先 */) {
-        let new_max_token_len = self.max_tokens_len.max(other.max_tokens_len);
-        let new_total_doc_count = self.total_doc_count + other.total_doc_count;
-        // 加重平均で平均トークン長を再計算
-        let sum_self = self.avg_tokens_len as u128 * self.total_doc_count as u128;
-        let sum_other = other.avg_tokens_len as u128 * other.total_doc_count as u128;
-        let new_avg_token_len =
-            ((sum_self + sum_other) / new_total_doc_count as u128) as u64;
-
-        //  値の準備
-        let mut builder = MapBuilder::memory();
-        let mut this_stream = self.idf.stream();
-        let mut other_stream = other.idf.stream();
-        let mut do_pop_this = true;
-        let mut do_pop_other = true;
-        let mut this_index_shift: usize = 0;
-        let mut other_index_shift: usize = 0;
-        let mut this_index_csvec_index: usize = 0;
-        let mut other_index_csvec_index: usize = 0;
-        let mut this_index_csvecs_indices_index_cash: Vec<usize> = Vec::with_capacity(self.index.len());
-        let mut other_index_csvecs_indices_index_cash: Vec<usize> = Vec::with_capacity(other.index.len());
-        this_index_csvecs_indices_index_cash.resize(self.index.len(), 0);
-        other_index_csvecs_indices_index_cash.resize(other.index.len(), 0);
-
-
-        //  両方のidfを合成, csvecのindexを再計算
-        loop {
-            let next_this = if do_pop_this { this_stream.next() } else { None };
-            let next_other = if do_pop_other { other_stream.next() } else { None };
-            match (next_this, next_other) {
-                (None, None) => break,
-                (None, Some(other)) => {
-                    let (other_token, other_idf) = other;
-                    builder.insert(other_token, other_idf).unwrap();
-                    do_pop_this = false;
-                    do_pop_other = true;
-                },
-                (Some(this), None) => {
-                    let (this_token, this_idf) = this;
-                    builder.insert(this_token, this_idf).unwrap();
-                    do_pop_this = true;
-                    do_pop_other = false;
-                },
-                (Some(this), Some(other)) => {
-                    let (this_token, this_idf) = this;
-                    let (other_token, other_idf) = other;
-                    if this_token < other_token {
-                        builder.insert(this_token, this_idf).unwrap();
-                        do_pop_this = true; this_index_csvec_index += 1;
-                        do_pop_other = false; other_index_shift += 1;
-                    } else if this_token == other_token {
-                        builder.insert(this_token, this_idf.max(other_idf)).unwrap();
-                        do_pop_this = true; this_index_csvec_index += 1;
-                        do_pop_other = true; other_index_csvec_index += 1;
-                    } else {
-                        builder.insert(other_token, other_idf).unwrap();
-                        do_pop_this = false; this_index_shift += 1;
-                        do_pop_other = true; other_index_csvec_index += 1;
-                    }
-                },
-            }
-            self.index.iter_mut().enumerate().for_each(|(i, (_id, (doc_vec, _doc_len)))| {
-                let vec_indices_index = this_index_csvecs_indices_index_cash.get_mut(i).unwrap();
-                loop {
-                    let index_csvec_index = doc_vec.indices_mut()/* unsafe（こんどCsVecけしてスパースVecの独自実装作る */.get_mut(*vec_indices_index).unwrap();
-                    if *index_csvec_index > this_index_csvec_index {
-                        break;
-                    } else if *index_csvec_index == this_index_csvec_index {
-                        *index_csvec_index += this_index_shift;
-                        *vec_indices_index += 1;
-                        break;
-                    } else {
-                        *vec_indices_index += 1;
-                    }
-                }
-            });
-            other.index.iter_mut().enumerate().for_each(|(i, (_id, (doc_vec, _doc_len)))| {
-                let vec_indices_index = other_index_csvecs_indices_index_cash.get_mut(i).unwrap();
-                loop {
-                    let index_csvec_index = doc_vec.indices_mut()./* unsafe（こんどCsVecけしてスパースVecの独自実装作る */get_mut(*vec_indices_index).unwrap();
-                    if *index_csvec_index > other_index_csvec_index {
-                        break;
-                    } else if *index_csvec_index == other_index_csvec_index {
-                        *index_csvec_index += other_index_shift;
-                        *vec_indices_index += 1;
-                        break;
-                    } else {
-                        *vec_indices_index += 1;
-                    }
-                }
-            });
+        // 2) self.index のCsVecのインデックスを再マッピング
+        for (_doc_id, (csvec, _doc_len)) in &mut self.index {
+            Self::remap_csvec_indices(csvec, &self_mapping);
         }
-        let new_idf = builder.into_map();
+        // 3) other.index 側も再マッピング
+        let mut other_index = other.index;
+        for (_doc_id, (csvec, _doc_len)) in &mut other_index {
+            Self::remap_csvec_indices(csvec, &other_mapping);
+        }
 
-        //  インデックスの合成
-        self.index.extend(other.index);
-        self.avg_tokens_len = new_avg_token_len;
-        self.max_tokens_len = new_max_token_len;
+        // 4) docを合成 (同じ doc_id があれば otherを優先して上書き)
+        //    注意: `extend` は衝突するときに上書きされる
+        self.index.extend(other_index);
+
+        // 5) 統計値の更新
+        let new_max = self.max_tokens_len.max(other.max_tokens_len);
+        let new_doc_count = self.total_doc_count + other.total_doc_count;
+        let new_avg = {
+            let sum_self = self.avg_tokens_len as u128 * self.total_doc_count as u128;
+            let sum_other = other.avg_tokens_len as u128 * other.total_doc_count as u128;
+            ((sum_self + sum_other) / new_doc_count as u128) as u64
+        };
+
+        self.max_tokens_len = new_max;
+        self.total_doc_count = new_doc_count;
+        self.avg_tokens_len = new_avg;
         self.idf = new_idf;
-        self.total_doc_count = new_total_doc_count;
+    }
+
+    // ---------------------------------------------------------------------------------
+    // IDF をマージして:
+    // - 合成後の Map<Vec<u8>> (新 IDF)
+    // - self用の old->new インデックス対応表
+    // - other用の old->new インデックス対応表
+    // を返す
+    // ---------------------------------------------------------------------------------
+    fn merge_idf_and_build_mapping(
+        old_idf_self: &Map<Vec<u8>>,
+        old_idf_other: &Map<Vec<u8>>,
+    ) -> (Map<Vec<u8>>, Vec<usize>, Vec<usize>) {
+        let mut builder = MapBuilder::memory();
+        let mut stream_self = old_idf_self.stream();
+        let mut stream_other = old_idf_other.stream();
+
+        // old->new の対応表 (「oldのi番目トークン」は合成後は何番目になるか)
+        // fst::Map 内の「i番目」という概念をつくるため、順番に next() を呼び出しながらカウントする。
+        let mut mapping_self = Vec::with_capacity(old_idf_self.len());
+        let mut mapping_other = Vec::with_capacity(old_idf_other.len());
+
+        // 現在のトークン番号(合成後)をカウント
+        let mut new_idx = 0usize;
+
+        let mut advance_s = true;
+        let mut advance_o = true;
+
+        // インクリメント用カウンタ
+        let mut old_idx_s = 0usize; // selfのトークンが何番目にストリームで出てきたか
+        let mut old_idx_o = 0usize; // otherのトークンが何番目にストリームで出てきたか
+
+        'outer: loop {
+            // 必要な方だけ進める
+            let item_s = if advance_s { stream_self.next() } else { None };
+            let item_o = if advance_o { stream_other.next() } else { None };
+
+            match (item_s, item_o) {
+                (None, None) => break 'outer,
+                (Some((token_s, idf_s)), None) => {
+                    // selfだけ残あり
+                    builder.insert(token_s, idf_s).unwrap();
+                    mapping_self.push(new_idx);
+                    new_idx += 1;
+                    advance_s = true;
+                    advance_o = false;
+                    old_idx_s += 1;
+                }
+                (None, Some((token_o, idf_o))) => {
+                    // otherだけ残あり
+                    builder.insert(token_o, idf_o).unwrap();
+                    mapping_other.push(new_idx);
+                    new_idx += 1;
+                    advance_s = false;
+                    advance_o = true;
+                    old_idx_o += 1;
+                }
+                (Some((token_s, idf_s)), Some((token_o, idf_o))) => {
+                    match token_s.cmp(&token_o) {
+                        std::cmp::Ordering::Less => {
+                            builder.insert(token_s, idf_s).unwrap();
+                            mapping_self.push(new_idx);
+                            new_idx += 1;
+                            advance_s = true;
+                            advance_o = false; // otherはまだ消費しない
+                            old_idx_s += 1;
+                        }
+                        std::cmp::Ordering::Equal => {
+                            // 同一トークン => IDFはmaxを取る
+                            let merged = idf_s.max(idf_o);
+                            builder.insert(token_s, merged).unwrap();
+                            // 両方同じトークン番号に対応
+                            mapping_self.push(new_idx);
+                            mapping_other.push(new_idx);
+                            new_idx += 1;
+                            advance_s = true;
+                            advance_o = true;
+                            old_idx_s += 1;
+                            old_idx_o += 1;
+                        }
+                        std::cmp::Ordering::Greater => {
+                            builder.insert(token_o, idf_o).unwrap();
+                            mapping_other.push(new_idx);
+                            new_idx += 1;
+                            advance_s = false; // selfはまだ消費しない
+                            advance_o = true;
+                            old_idx_o += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        // もし最後にキャパシティが足りてないなら伸ばす
+        while mapping_self.len() < old_idf_self.len() {
+            mapping_self.push(new_idx); // ダミー
+        }
+        while mapping_other.len() < old_idf_other.len() {
+            mapping_other.push(new_idx); // ダミー
+        }
+
+        // 新IDF
+        let new_idf = builder.into_map();
+        (new_idf, mapping_self, mapping_other)
+    }
+
+    // ---------------------------------------------------------------------------------
+    // doc_vec.indices_mut()を走査して、(旧のidx) -> (新のidx) に書き換える
+    // mapping は old_idf での i番目のトークンが、新IDFでは mapping[i] という対応を表す
+    // ---------------------------------------------------------------------------------
+    fn remap_csvec_indices(csvec: &mut CsVec<u16>, mapping: &[usize]) {
+        // 例: doc_vec.indices() が [2, 10, 11] だったら
+        //     それぞれ mapping[2], mapping[10], mapping[11] に書き換える
+        let inds = csvec.indices_mut();
+        for idx in inds {
+            let old = *idx;
+            if old < mapping.len() {
+                *idx = mapping[old];
+            } else {
+                // mapping範囲外 => エラー or スキップなど要件に応じて
+                // ここでは念のため「最後の要素」にしておく
+                *idx = mapping.len().saturating_sub(1);
+            }
+        }
+
+        // 次に dimension を 新 IDF のトークン数 に合わせたい場合:
+        // csvec.dim = mapping.len()  (sprs::CsVecの場合は new()し直しかもしれません)
+        // 簡易的には: 
+        //   let new_dim = mapping.len();
+        //   let new_indices = csvec.indices().to_vec();
+        //   let new_data    = csvec.data().to_vec();
+        //   let new_csvec   = CsVec::new(new_dim, new_indices, new_data);
+        // … のように作り直すことも多いです。
     }
 
     // ---------------------------------------------------------------------------------------------

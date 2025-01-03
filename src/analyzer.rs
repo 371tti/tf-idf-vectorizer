@@ -9,6 +9,8 @@ use sprs::CsVec;
 use crate::{csvec_trait::FromVec, index::Index, token::TokenFrequency};
 
 
+
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Document {
     pub text: Option<String>,
