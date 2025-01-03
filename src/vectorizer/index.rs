@@ -3,10 +3,9 @@ use std::str;
 
 use fst::{Map, MapBuilder, Streamer};
 use serde::Serialize;
-use sprs::CsVec;
 use vec_plus::vec::{sparse_vec::ZeroSparseVec, vec_trait::Math};
 
-use super::{csvec_trait::{FromVec}, token::TokenFrequency};
+use super::token::TokenFrequency;
 
 
 #[derive(Clone, Debug)]
@@ -145,107 +144,124 @@ where
         let new_avg_token_len =
             ((sum_self + sum_other) / new_total_doc_count as u128) as u64;
 
+        // その他の初期計算
+        let this_max_idf = (1.0 + self.total_doc_count as f64 / (2.0)).ln() as f32;
+        let other_max_idf = (1.0 + other.total_doc_count as f64 / (2.0)).ln() as f32;
+        let combined_max_idf = (1.0 + new_total_doc_count as f64 / (2.0)).ln() as f32;
+
         //  値の準備
         let mut builder = MapBuilder::memory();
         let mut this_stream = self.idf.stream();
         let mut other_stream = other.idf.stream();
         let mut new_index_index: usize = 0;
-        let mut this_index_csvec_index: usize = 0;
-        let mut other_index_csvec_index: usize = 0;
-        let mut this_new_csvec_index_vec: Vec<(usize, usize)> = Vec::new();
-        let mut other_new_csvec_index_vec: Vec<(usize, usize)> = Vec::new();
-
+        let mut this_new_csvec_index_vec: Vec<usize> = Vec::new();
+        let mut other_new_csvec_index_vec: Vec<usize> = Vec::new();
 
         let mut next_this = this_stream.next();
         let mut next_other = other_stream.next();
         //  両方のidfを合成, csvecのindexを再計算
-        loop {
-            match (next_this, next_other) {
-                (None, None) => break,
-                (None, Some(other)) => {
-                    let (other_token, other_idf) = other;
-                    builder.insert(other_token, other_idf).unwrap();
-                    next_other = other_stream.next();
-                        other_new_csvec_index_vec.push((other_index_csvec_index, new_index_index));
-                        other_index_csvec_index += 1;
-                },
-                (Some(this), None) => {
-                    let (this_token, this_idf) = this;
-                    builder.insert(this_token, this_idf).unwrap();
-                    next_this = this_stream.next();
-                        this_new_csvec_index_vec.push((this_index_csvec_index, new_index_index));
-                        this_index_csvec_index += 1;
-                },
-                (Some(this), Some(other)) => {
-                    let (this_token, this_idf) = this;
-                    let (other_token, other_idf) = other;
-                    if this_token < other_token {
-                        builder.insert(this_token, this_idf).unwrap();
-                        next_this = this_stream.next();
-                            this_new_csvec_index_vec.push((this_index_csvec_index, new_index_index));
-                            this_index_csvec_index += 1;
-                        // otherのindexはそのまま
+        while next_this != None && next_other != None {
+            let (this_token, this_idf ) = next_this.unwrap();
+            let (other_token, other_idf) = next_other.unwrap();
+            if this_token < other_token {
+                builder.insert(this_token, this_idf).unwrap();
+                next_this = this_stream.next();
+                    this_new_csvec_index_vec.push(new_index_index);
+                // otherのindexはそのまま
 
-                    } else if this_token == other_token {
-                        builder.insert(this_token, this_idf.max(other_idf)).unwrap();
-                        next_this = this_stream.next();
-                            this_new_csvec_index_vec.push((this_index_csvec_index, new_index_index));
-                            this_index_csvec_index += 1;
-                        next_other = other_stream.next();
-                            other_new_csvec_index_vec.push((other_index_csvec_index, new_index_index));
-                            other_index_csvec_index += 1;
-                    } else {
-                        builder.insert(other_token, other_idf).unwrap();
-                        // thisのindexはそのまま
+            } else if this_token == other_token {
+                builder.insert(this_token, Self::synthesize_idf(this_idf, other_idf, 
+                    self.total_doc_count, 
+                    other.total_doc_count, 
+                    new_total_doc_count, 
+                    this_max_idf, 
+                    other_max_idf, 
+                    combined_max_idf
+                )).unwrap();
+                next_this = this_stream.next();
+                    this_new_csvec_index_vec.push(new_index_index);
+                next_other = other_stream.next();
+                    other_new_csvec_index_vec.push(new_index_index);
+            } else {
+                builder.insert(other_token, other_idf).unwrap();
+                // thisのindexはそのまま
 
-                        next_other = other_stream.next();
-                            other_new_csvec_index_vec.push((other_index_csvec_index, new_index_index));
-                            other_index_csvec_index += 1;
-                    }
-                },
+                next_other = other_stream.next();
+                    other_new_csvec_index_vec.push(new_index_index);
             }
             new_index_index += 1;
         }
+        if next_this != None {
+            loop {
+                let (this_token, this_idf) = next_this.unwrap();
+                builder.insert(this_token, this_idf).unwrap();
+                next_this = this_stream.next();
+                    this_new_csvec_index_vec.push(new_index_index);
+                new_index_index += 1;
+                if next_this == None {
+                    break;
+                }
+            }
+        } else if next_other != None {
+            loop {
+                let (other_token, other_idf) = next_other.unwrap();
+                builder.insert(other_token, other_idf).unwrap();
+                next_other = other_stream.next();
+                    other_new_csvec_index_vec.push(new_index_index);
+                new_index_index += 1;
+                if next_other == None {
+                    break;
+                }
+            }
+        }
         let new_idf = builder.into_map();
+        println!("{:?}", new_idf);
 
         //  csvecのindexを合成
         self.index.iter_mut().for_each(|(_id, (csvec, _))| {
             let indices = csvec.sparse_indices_mut();
-            let mut i = 0;
-            for (old_index, new_index) in this_new_csvec_index_vec.iter() {
-                while i < indices.len() {
-                    if indices[i] == *old_index {
-                        indices[i] = *new_index;
-                        break;
-                    }
-                    i += 1;
-                }
+            for indice in indices {
+                *indice = this_new_csvec_index_vec[*indice];
             }
         });
 
         other.index.iter_mut().for_each(|(_id, (csvec, _))| {
             let indices = csvec.sparse_indices_mut();
-            let mut i = 0;
-            for (old_index, new_index) in other_new_csvec_index_vec.iter() {
-                while i < indices.len() {
-                    if indices[i] == *old_index {
-                        indices[i] = *new_index;
-                        break;
-                    }
-                    i += 1;
-                }
+            for indice in indices {
+                *indice = other_new_csvec_index_vec[*indice];
             }
         });
 
-        
-
         //  インデックスの合成
         self.index.extend(other.index);
-        println!("{:?}", self.index);
         self.avg_tokens_len = new_avg_token_len;
         self.max_tokens_len = new_max_token_len;
         self.idf = new_idf;
         self.total_doc_count = new_total_doc_count;
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    //  プライベート:IDF の合成
+    // ---------------------------------------------------------------------------------------------
+    #[inline(always)]
+    fn synthesize_idf(
+        this_idf: u64,
+        other_idf: u64,
+        this_doc_count: u64,
+        other_doc_count: u64,
+        total_doc_count: u64,
+        this_max_idf: f32,
+        other_max_idf: f32,
+        combined_max_idf: f32,
+    ) -> u64 {
+        const MAX_U16: f32 = 65535.0;
+
+        let a = (this_idf as f32 * this_max_idf / MAX_U16).exp();
+        let b = (other_idf as f32 * other_max_idf / MAX_U16).exp();
+
+        let denominator = (this_doc_count as f32) / a + (other_doc_count as f32) / b - 2.0;
+        let inner = 1.0 + (total_doc_count as f32) / denominator;
+        ((inner.ln() / combined_max_idf) * MAX_U16).round() as u64
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -340,35 +356,4 @@ where
             0.0
         }
     }
-
-    // // ---------------------------------------------------------------------------------------------
-    // // プライベート: ドット積
-    // // ---------------------------------------------------------------------------------------------
-    // fn dot_product_u16(vec_a: &ZeroSparseVec<u16>, vec_b: &ZeroSparseVec<u16>) -> u64 {
-    //     let mut result = 0u64;
-
-    //     let mut iter_a = vec_a.iter();
-    //     let mut iter_b = vec_b.iter();
-
-    //     let mut a = iter_a.next();
-    //     let mut b = iter_b.next();
-
-    //     while let (Some((index_a, &val_a)), Some((index_b, &val_b))) = (a, b) {
-    //         match index_a.cmp(&index_b) {
-    //             std::cmp::Ordering::Equal => {
-    //                 result = result.saturating_add((val_a as u64) * (val_b as u64));
-    //                 a = iter_a.next();
-    //                 b = iter_b.next();
-    //             }
-    //             std::cmp::Ordering::Less => {
-    //                 a = iter_a.next();
-    //             }
-    //             std::cmp::Ordering::Greater => {
-    //                 b = iter_b.next();
-    //             }
-    //         }
-    //     }
-
-    //     result
-    // }
 }

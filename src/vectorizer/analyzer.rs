@@ -4,10 +4,8 @@ use std::str;
 use fst::{MapBuilder, Streamer};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
-use sprs::CsVec;
-use vec_plus::vec::sparse_vec::ZeroSparseVec;
 
-use crate::vectorizer::csvec_trait::FromVec;
+use vec_plus::vec::sparse_vec::ZeroSparseVec;
 
 use super::{index::Index, token::TokenFrequency};
 

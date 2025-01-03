@@ -733,3 +733,76 @@ impl TokenFrequency {
         self.total_token_count = 0;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_add_token() {
+        let mut tf = TokenFrequency::new();
+        tf.add_token("rust");
+        assert_eq!(tf.token_count.get("rust"), Some(&1));
+        assert_eq!(tf.total_token_count, 1);
+    }
+
+    #[test]
+    fn test_add_tokens() {
+        let mut tf = TokenFrequency::new();
+        tf.add_tokens(&["rust", "rust", "programming"]);
+        assert_eq!(tf.token_count.get("rust"), Some(&2));
+        assert_eq!(tf.token_count.get("programming"), Some(&1));
+        assert_eq!(tf.total_token_count, 3);
+    }
+
+    #[test]
+    fn test_sub_token() {
+        let mut tf = TokenFrequency::new();
+        tf.add_tokens(&["rust", "rust", "programming"]);
+        tf.sub_token("rust");
+        assert_eq!(tf.token_count.get("rust"), Some(&1));
+        assert_eq!(tf.total_token_count, 2);
+    }
+
+    #[test]
+    fn test_tf_calc() {
+        let tf = TokenFrequency::tf_calc(3, 2);
+        assert!((tf - (1.0 + 2.0).ln() / (3.0 + 1.0).ln()).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_idf_calc() {
+        let idf = TokenFrequency::idf_calc(100, 1.5, 10);
+        assert!((idf - (1.0 + 100.0 / (1.0 + 10.0)).ln() / 1.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_tfidf_calc() {
+        let tfidf = TokenFrequency::tfidf_calc(2.0, 1.5);
+        assert_eq!(tfidf, 3.0);
+    }
+
+    #[test]
+    fn test_reset() {
+        let mut tf = TokenFrequency::new();
+        tf.add_tokens(&["rust", "programming"]);
+        tf.reset();
+        assert!(tf.token_count.is_empty());
+        assert_eq!(tf.total_token_count, 0);
+    }
+
+    #[test]
+    fn test_get_token_length_stats() {
+        let mut tf = TokenFrequency::new();
+        tf.add_tokens(&["rust", "go", "java"]);
+        let stats = tf.get_token_length_stats();
+        assert_eq!(stats, Some((2, 4, 3.3333333333333335)));
+    }
+
+    #[test]
+    fn test_unique_token_ratio() {
+        let mut tf = TokenFrequency::new();
+        tf.add_tokens(&["rust", "rust", "go"]);
+        assert_eq!(tf.get_unique_token_ratio(), 2.0 / 3.0);
+    }
+}
