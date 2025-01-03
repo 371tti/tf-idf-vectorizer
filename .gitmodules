@@ -1,3 +1,6 @@
 [submodule "sudachi.rs"]
 	path = sudachi.rs
 	url = https://github.com/WorksApplications/sudachi.rs
+[submodule "vec-plus"]
+	path = vec-plus
+	url = https://github.com/371tti/vec-plus
