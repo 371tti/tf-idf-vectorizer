@@ -1,14 +1,13 @@
 use rayon::prelude::*;
+use tf_idf_vectorizer::vectorizer::analyzer::DocumentAnalyzer;
 use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::{self, BufReader, Read, Write};
-use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use crate::analyzer::DocumentAnalyzer;
 
 const MAX_SUDACHI_INPUT_SIZE: usize = 49100;
 const MAX_FILES_TO_PROCESS: usize = 10;
@@ -125,9 +124,12 @@ fn filter_tokens(tokens: Vec<String>, blacklist: &HashSet<String>) -> Vec<String
 
 // メイン処理
 fn main() {
-    let dir_path = "z:\\D\\dev\\web_dev\\idis_v2\\wikipedia_all_articles_fast";
+    let dir_path = "C:\\D\\dev\\web_dev\\idis_v2\\wikipedia_all_articles_fast";
     let blacklist = blacklist();
-    let mut analyzer = Arc::new(Mutex::new(DocumentAnalyzer::<String>::new()));
+
+    // 2つのインデックス用の `DocumentAnalyzer` を作成
+    let analyzer1 = Arc::new(Mutex::new(DocumentAnalyzer::<String>::new()));
+    let analyzer2 = Arc::new(Mutex::new(DocumentAnalyzer::<String>::new()));
     let file_counter = Arc::new(AtomicUsize::new(0));
     
     // ファイルを逐次処理しつつ並列化
@@ -140,40 +142,58 @@ fn main() {
 
             let file_count = file_counter.load(Ordering::Relaxed);
 
-            if file_count >= MAX_FILES_TO_PROCESS {
-            return Err(()); // すでに指定件数を超えている場合は処理をスキップ
+            if file_count >= 200 {
+                return Err(()); // すでに指定件数を超えている場合は処理をスキップ
             }
 
             if path.is_file() {
-            let file_name = path.file_name().unwrap().to_string_lossy().to_string();
-            let file = File::open(&path).expect("Failed to open file");
-            let mut buf_reader = BufReader::new(file);
-            let mut content = String::new();
+                let file_name = path.file_name().unwrap().to_string_lossy().to_string();
+                let file = File::open(&path).expect("Failed to open file");
+                let mut buf_reader = BufReader::new(file);
+                let mut content = String::new();
 
-            buf_reader
-                .read_to_string(&mut content)
-                .expect("Failed to read file");
+                buf_reader
+                    .read_to_string(&mut content)
+                    .expect("Failed to read file");
 
-            println!("Processing file: {} {}", file_count, file_name);
-            let mut tokens = tokenize_with_sudachi(&content, "B");
-            tokens = filter_tokens(tokens, &blacklist);
+                println!("Processing file: {} {}", file_count, file_name);
+                let mut tokens = tokenize_with_sudachi(&content, "B");
+                tokens = filter_tokens(tokens, &blacklist);
 
-            let token_refs: Vec<&str> = tokens.iter().map(AsRef::as_ref).collect();
-            let mut analyzer = analyzer.lock().unwrap();
-            analyzer.add_document(file_name, &token_refs, None);
+                let token_refs: Vec<&str> = tokens.iter().map(AsRef::as_ref).collect();
+                
+                if file_count < 100 {
+                    // インデックス1に追加
+                    let mut analyzer = analyzer1.lock().unwrap();
+                    analyzer.add_document(format!("index1_{}", file_name), &token_refs, None);
+                } else {
+                    // インデックス2に追加
+                    let mut analyzer = analyzer2.lock().unwrap();
+                    analyzer.add_document(format!("index2_{}", file_name), &token_refs, None);
+                }
 
-            // ファイルカウンターを増加
-            file_counter.fetch_add(1, Ordering::Relaxed);
+                // ファイルカウンターを増加
+                file_counter.fetch_add(1, Ordering::Relaxed);
             }
 
             Ok(())
         }).ok(); // エラーを無視して終了
 
-    // インデックスの生成
-    println!("Generating index...");
-    let index = analyzer.lock().unwrap().generate_index();
-    drop(analyzer);
+    // 各インデックスの生成
+    println!("Generating index 1...");
+    let index1 = analyzer1.lock().unwrap().generate_index();
+    println!("Generating index 2...");
+    let index2 = analyzer2.lock().unwrap().generate_index();
+    drop(analyzer1);
+    drop(analyzer2);
+    println!("Performing search... marge");
+    let start = Instant::now();
+    let mut marged_index = index1.clone();
+    marged_index.synthesize_index(index2.clone());
+    let duration = start.elapsed();
 
+    println!("Marge result time: {:.4?}):", duration);
+    // 検索ループ
     loop {
         println!("Enter your search query:");
         let mut query = String::new();
@@ -183,14 +203,22 @@ fn main() {
         let query_tokens = filter_tokens(query_tokens, &blacklist);
         let query_refs: Vec<&str> = query_tokens.iter().map(AsRef::as_ref).collect();
 
-        println!("Performing search...");
+
         let start = Instant::now();
-        let results = index.search_bm25_tfidf(&query_refs, 100, 1.5, 0.0 as f64);
+        let result0 = index1.search_bm25_tfidf(&query_refs, 100, 1.5, 0.0 as f64);
+        let result1 = index2.search_bm25_tfidf(&query_refs, 100, 1.5, 0.0 as f64);
+        let result2 = marged_index.search_bm25_tfidf(&query_refs, 100, 1.5, 0.0 as f64);
         let duration = start.elapsed();
 
         println!("Search results (Time taken: {:.2?}):", duration);
-        for (doc_id, similarity) in results {
-            println!("Document ID: {}, Similarity: {:.4}", doc_id, similarity);
+        for (doc_id, similarity) in result0 {
+            println!("1Document ID: {}, Similarity: {:.4}", doc_id, similarity);
+        }
+        for (doc_id, similarity) in result1 {
+            println!("2Document ID: {}, Similarity: {:.4}", doc_id, similarity);
+        }
+        for (doc_id, similarity) in result2 {
+            println!("MDocument ID: {}, Similarity: {:.4}", doc_id, similarity);
         }
     }
 }

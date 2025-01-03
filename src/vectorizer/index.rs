@@ -4,16 +4,19 @@ use std::str;
 use fst::{Map, MapBuilder, Streamer};
 use serde::Serialize;
 use sprs::CsVec;
+use vec_plus::vec::{sparse_vec::ZeroSparseVec, vec_trait::Math};
 
-use crate::{csvec_trait::{CsVecExt, FromVec}, token::TokenFrequency};
+use super::{csvec_trait::{FromVec}, token::TokenFrequency};
 
+
+#[derive(Clone, Debug)]
 pub struct Index<IdType>
 where
-    IdType: Clone + Eq + std::hash::Hash + Serialize,
+    IdType: Clone + Eq + std::hash::Hash + Serialize + std::fmt::Debug,
 {
     // doc_id -> (圧縮ベクトル, 文書の総トークン数)
     // 圧縮ベクトル: インデックス順にトークンの TF を保持
-    pub index: HashMap<IdType, (CsVec<u16>, u64 /* token num */)>,
+    pub index: HashMap<IdType, (ZeroSparseVec<u16>, u64 /* token num */)>,
     pub avg_tokens_len: u64,  // 全文書の平均トークン長
     pub max_tokens_len: u64,  // 全文書の最大トークン長
     pub idf: Map<Vec<u8>>,    // fst::Map 形式の IDF
@@ -22,13 +25,13 @@ where
 
 impl<IdType> Index<IdType>
 where
-    IdType: Clone + Eq + std::hash::Hash + Serialize,
+    IdType: Clone + Eq + std::hash::Hash + Serialize + std::fmt::Debug,
 {
     // ---------------------------------------------------------------------------------------------
     // コンストラクタ
     // ---------------------------------------------------------------------------------------------
     pub fn new_with_set(
-        index: HashMap<IdType, (CsVec<u16>, u64)>,
+        index: HashMap<IdType, (ZeroSparseVec<u16>, u64)>,
         idf: Map<Vec<u8>>,
         avg_tokens_len: u64,
         max_tokens_len: u64,
@@ -43,7 +46,7 @@ where
         }
     }
 
-    pub fn get_index(&self) -> &HashMap<IdType, (CsVec<u16>, u64)> {
+    pub fn get_index(&self) -> &HashMap<IdType, (ZeroSparseVec<u16>, u64)> {
         &self.index
     }
 
@@ -146,89 +149,99 @@ where
         let mut builder = MapBuilder::memory();
         let mut this_stream = self.idf.stream();
         let mut other_stream = other.idf.stream();
-        let mut do_pop_this = true;
-        let mut do_pop_other = true;
-        let mut this_index_shift: usize = 0;
-        let mut other_index_shift: usize = 0;
+        let mut new_index_index: usize = 0;
         let mut this_index_csvec_index: usize = 0;
         let mut other_index_csvec_index: usize = 0;
-        let mut this_index_csvecs_indices_index_cash: Vec<usize> = Vec::with_capacity(self.index.len());
-        let mut other_index_csvecs_indices_index_cash: Vec<usize> = Vec::with_capacity(other.index.len());
-        this_index_csvecs_indices_index_cash.resize(self.index.len(), 0);
-        other_index_csvecs_indices_index_cash.resize(other.index.len(), 0);
+        let mut this_new_csvec_index_vec: Vec<(usize, usize)> = Vec::new();
+        let mut other_new_csvec_index_vec: Vec<(usize, usize)> = Vec::new();
 
 
+        let mut next_this = this_stream.next();
+        let mut next_other = other_stream.next();
         //  両方のidfを合成, csvecのindexを再計算
         loop {
-            let next_this = if do_pop_this { this_stream.next() } else { None };
-            let next_other = if do_pop_other { other_stream.next() } else { None };
             match (next_this, next_other) {
                 (None, None) => break,
                 (None, Some(other)) => {
                     let (other_token, other_idf) = other;
                     builder.insert(other_token, other_idf).unwrap();
-                    do_pop_this = false;
-                    do_pop_other = true;
+                    next_other = other_stream.next();
+                        other_new_csvec_index_vec.push((other_index_csvec_index, new_index_index));
+                        other_index_csvec_index += 1;
                 },
                 (Some(this), None) => {
                     let (this_token, this_idf) = this;
                     builder.insert(this_token, this_idf).unwrap();
-                    do_pop_this = true;
-                    do_pop_other = false;
+                    next_this = this_stream.next();
+                        this_new_csvec_index_vec.push((this_index_csvec_index, new_index_index));
+                        this_index_csvec_index += 1;
                 },
                 (Some(this), Some(other)) => {
                     let (this_token, this_idf) = this;
                     let (other_token, other_idf) = other;
                     if this_token < other_token {
                         builder.insert(this_token, this_idf).unwrap();
-                        do_pop_this = true; this_index_csvec_index += 1;
-                        do_pop_other = false; other_index_shift += 1;
+                        next_this = this_stream.next();
+                            this_new_csvec_index_vec.push((this_index_csvec_index, new_index_index));
+                            this_index_csvec_index += 1;
+                        // otherのindexはそのまま
+
                     } else if this_token == other_token {
                         builder.insert(this_token, this_idf.max(other_idf)).unwrap();
-                        do_pop_this = true; this_index_csvec_index += 1;
-                        do_pop_other = true; other_index_csvec_index += 1;
+                        next_this = this_stream.next();
+                            this_new_csvec_index_vec.push((this_index_csvec_index, new_index_index));
+                            this_index_csvec_index += 1;
+                        next_other = other_stream.next();
+                            other_new_csvec_index_vec.push((other_index_csvec_index, new_index_index));
+                            other_index_csvec_index += 1;
                     } else {
                         builder.insert(other_token, other_idf).unwrap();
-                        do_pop_this = false; this_index_shift += 1;
-                        do_pop_other = true; other_index_csvec_index += 1;
+                        // thisのindexはそのまま
+
+                        next_other = other_stream.next();
+                            other_new_csvec_index_vec.push((other_index_csvec_index, new_index_index));
+                            other_index_csvec_index += 1;
                     }
                 },
             }
-            self.index.iter_mut().enumerate().for_each(|(i, (_id, (doc_vec, _doc_len)))| {
-                let vec_indices_index = this_index_csvecs_indices_index_cash.get_mut(i).unwrap();
-                loop {
-                    let index_csvec_index = doc_vec.indices_mut()/* unsafe（こんどCsVecけしてスパースVecの独自実装作る */.get_mut(*vec_indices_index).unwrap();
-                    if *index_csvec_index > this_index_csvec_index {
-                        break;
-                    } else if *index_csvec_index == this_index_csvec_index {
-                        *index_csvec_index += this_index_shift;
-                        *vec_indices_index += 1;
-                        break;
-                    } else {
-                        *vec_indices_index += 1;
-                    }
-                }
-            });
-            other.index.iter_mut().enumerate().for_each(|(i, (_id, (doc_vec, _doc_len)))| {
-                let vec_indices_index = other_index_csvecs_indices_index_cash.get_mut(i).unwrap();
-                loop {
-                    let index_csvec_index = doc_vec.indices_mut()./* unsafe（こんどCsVecけしてスパースVecの独自実装作る */get_mut(*vec_indices_index).unwrap();
-                    if *index_csvec_index > other_index_csvec_index {
-                        break;
-                    } else if *index_csvec_index == other_index_csvec_index {
-                        *index_csvec_index += other_index_shift;
-                        *vec_indices_index += 1;
-                        break;
-                    } else {
-                        *vec_indices_index += 1;
-                    }
-                }
-            });
+            new_index_index += 1;
         }
         let new_idf = builder.into_map();
 
+        //  csvecのindexを合成
+        self.index.iter_mut().for_each(|(_id, (csvec, _))| {
+            let indices = csvec.sparse_indices_mut();
+            let mut i = 0;
+            for (old_index, new_index) in this_new_csvec_index_vec.iter() {
+                while i < indices.len() {
+                    if indices[i] == *old_index {
+                        indices[i] = *new_index;
+                        break;
+                    }
+                    i += 1;
+                }
+            }
+        });
+
+        other.index.iter_mut().for_each(|(_id, (csvec, _))| {
+            let indices = csvec.sparse_indices_mut();
+            let mut i = 0;
+            for (old_index, new_index) in other_new_csvec_index_vec.iter() {
+                while i < indices.len() {
+                    if indices[i] == *old_index {
+                        indices[i] = *new_index;
+                        break;
+                    }
+                    i += 1;
+                }
+            }
+        });
+
+        
+
         //  インデックスの合成
         self.index.extend(other.index);
+        println!("{:?}", self.index);
         self.avg_tokens_len = new_avg_token_len;
         self.max_tokens_len = new_max_token_len;
         self.idf = new_idf;
@@ -239,8 +252,8 @@ where
     // BM25 実装 (公開: ほかで呼び出したい場合のみ pub)
     // ---------------------------------------------------------------------------------------------
     pub fn bm25_with_csvec_optimized(
-        query_vec: &CsVec<u16>, // クエリのTF-IDFベクトル（u16）
-        doc_vec: &CsVec<u16>,   // 文書のTF-IDFベクトル（u16）
+        query_vec: &ZeroSparseVec<u16>, // クエリのTF-IDFベクトル（u16）
+        doc_vec: &ZeroSparseVec<u16>,   // 文書のTF-IDFベクトル（u16）
         doc_len: u64,           // 文書のトークン数
         avg_doc_len: f64,       // 平均文書長
         k1: f64,                // BM25のパラメータ
@@ -254,8 +267,8 @@ where
         let k1_len_norm = k1 * len_norm;
 
         // クエリと文書のインデックスおよびデータ配列を直接取得
-        let (query_indices, query_data) = (query_vec.indices(), query_vec.data());
-        let (doc_indices, doc_data) = (doc_vec.indices(), doc_vec.data());
+        let (query_indices, query_data) = (query_vec.sparse_indices(), query_vec.sparse_values());
+        let (doc_indices, doc_data) = (doc_vec.sparse_indices(), doc_vec.sparse_values());
 
         let (mut q, mut d) = (0, 0);
         let (q_len, d_len) = (query_vec.nnz(), doc_vec.nnz());
@@ -287,7 +300,7 @@ where
     // ---------------------------------------------------------------------------------------------
     // プライベート: クエリ（&str のスライス）を CsVec<u16> に変換 (IDF を用いた TF-IDF)
     // ---------------------------------------------------------------------------------------------
-    fn build_query_csvec(&self, query: &[&str]) -> CsVec<u16> {
+    fn build_query_csvec(&self, query: &[&str]) -> ZeroSparseVec<u16> {
         // 1) クエリトークン頻度を作成
         let mut freq = TokenFrequency::new();
         freq.add_tokens(query);
@@ -306,19 +319,19 @@ where
         }
 
         // 4) CsVec に変換して返す
-        CsVec::from_vec(sorted_tfidf)
+        ZeroSparseVec::from(sorted_tfidf)
     }
 
     // ---------------------------------------------------------------------------------------------
     // プライベート: コサイン類似度
     // ---------------------------------------------------------------------------------------------
-    fn cos_similarity(vec_a: &CsVec<u16>, vec_b: &CsVec<u16>) -> f64 {
+    fn cos_similarity(vec_a: &ZeroSparseVec<u16>, vec_b: &ZeroSparseVec<u16>) -> f64 {
         // 内積
-        let dot_product = Self::dot_product_u16(vec_a, vec_b) as f64;
+        let dot_product = vec_a.u64_dot(vec_b) as f64;
 
         // ノルム（ベクトルの長さ）
-        let norm_a = (Self::dot_product_u16(vec_a, vec_a) as f64).sqrt();
-        let norm_b = (Self::dot_product_u16(vec_b, vec_b) as f64).sqrt();
+        let norm_a = (vec_a.u64_dot(vec_a) as f64).sqrt();
+        let norm_b = (vec_b.u64_dot(vec_b) as f64).sqrt();
 
         // コサイン類似度を返す
         if norm_a > 0.0 && norm_b > 0.0 {
@@ -328,34 +341,34 @@ where
         }
     }
 
-    // ---------------------------------------------------------------------------------------------
-    // プライベート: ドット積
-    // ---------------------------------------------------------------------------------------------
-    fn dot_product_u16(vec_a: &CsVec<u16>, vec_b: &CsVec<u16>) -> u64 {
-        let mut result = 0u64;
+    // // ---------------------------------------------------------------------------------------------
+    // // プライベート: ドット積
+    // // ---------------------------------------------------------------------------------------------
+    // fn dot_product_u16(vec_a: &ZeroSparseVec<u16>, vec_b: &ZeroSparseVec<u16>) -> u64 {
+    //     let mut result = 0u64;
 
-        let mut iter_a = vec_a.iter();
-        let mut iter_b = vec_b.iter();
+    //     let mut iter_a = vec_a.iter();
+    //     let mut iter_b = vec_b.iter();
 
-        let mut a = iter_a.next();
-        let mut b = iter_b.next();
+    //     let mut a = iter_a.next();
+    //     let mut b = iter_b.next();
 
-        while let (Some((index_a, &val_a)), Some((index_b, &val_b))) = (a, b) {
-            match index_a.cmp(&index_b) {
-                std::cmp::Ordering::Equal => {
-                    result = result.saturating_add((val_a as u64) * (val_b as u64));
-                    a = iter_a.next();
-                    b = iter_b.next();
-                }
-                std::cmp::Ordering::Less => {
-                    a = iter_a.next();
-                }
-                std::cmp::Ordering::Greater => {
-                    b = iter_b.next();
-                }
-            }
-        }
+    //     while let (Some((index_a, &val_a)), Some((index_b, &val_b))) = (a, b) {
+    //         match index_a.cmp(&index_b) {
+    //             std::cmp::Ordering::Equal => {
+    //                 result = result.saturating_add((val_a as u64) * (val_b as u64));
+    //                 a = iter_a.next();
+    //                 b = iter_b.next();
+    //             }
+    //             std::cmp::Ordering::Less => {
+    //                 a = iter_a.next();
+    //             }
+    //             std::cmp::Ordering::Greater => {
+    //                 b = iter_b.next();
+    //             }
+    //         }
+    //     }
 
-        result
-    }
+    //     result
+    // }
 }

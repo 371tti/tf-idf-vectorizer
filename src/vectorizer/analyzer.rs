@@ -5,8 +5,11 @@ use fst::{MapBuilder, Streamer};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 use sprs::CsVec;
+use vec_plus::vec::sparse_vec::ZeroSparseVec;
 
-use crate::{csvec_trait::FromVec, index::Index, token::TokenFrequency};
+use crate::vectorizer::csvec_trait::FromVec;
+
+use super::{index::Index, token::TokenFrequency};
 
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -34,7 +37,7 @@ impl Document {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DocumentAnalyzer<IdType>
 where
-    IdType: Eq + std::hash::Hash + Clone + Serialize + Send + Sync,
+    IdType: Eq + std::hash::Hash + Clone + Serialize + Send + Sync + std::fmt::Debug,
 {
     pub documents: HashMap<IdType, Document>,
     pub idf: TokenFrequency,
@@ -43,7 +46,7 @@ where
 
 impl<IdType> DocumentAnalyzer<IdType>
 where
-    IdType: Eq + std::hash::Hash + Clone + Serialize + Send + Sync,
+    IdType: Eq + std::hash::Hash + Clone + Serialize + Send + Sync + std::fmt::Debug,
 {
 
     pub fn new() -> Self {
@@ -144,7 +147,7 @@ where
                 tf_idf_sort_vec.push(tf_idf);
             }
     
-            let tf_idf_csvec: CsVec<u16> = CsVec::from_vec(tf_idf_sort_vec);
+            let tf_idf_csvec: ZeroSparseVec<u16> = ZeroSparseVec::from(tf_idf_sort_vec);
             let doc_tokens_len = document.tokens.get_total_token_count();
     
             total_doc_tokens_len.fetch_add(doc_tokens_len, Ordering::SeqCst);
