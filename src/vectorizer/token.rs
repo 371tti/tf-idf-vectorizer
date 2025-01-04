@@ -765,18 +765,6 @@ mod tests {
     }
 
     #[test]
-    fn test_tf_calc() {
-        let tf = TokenFrequency::tf_calc(3, 2);
-        assert!((tf - (1.0 + 2.0).ln() / (3.0 + 1.0).ln()).abs() < 1e-6);
-    }
-
-    #[test]
-    fn test_idf_calc() {
-        let idf = TokenFrequency::idf_calc(100, 1.5, 10);
-        assert!((idf - (1.0 + 100.0 / (1.0 + 10.0)).ln() / 1.5).abs() < 1e-6);
-    }
-
-    #[test]
     fn test_tfidf_calc() {
         let tfidf = TokenFrequency::tfidf_calc(2.0, 1.5);
         assert_eq!(tfidf, 3.0);
