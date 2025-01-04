@@ -105,8 +105,6 @@ where
     // ---------------------------------------------------------------------------------------------
 
     pub fn search_bm25_tfidf(&self, query: &[&str], n: usize, k1: f64, b: f64) -> Vec<(&IdType, f64)> {
-        println!("{:?}", query); // 開発デバッグ用の出力 (必要に応じて削除/ロギングに切り替え推奨)
-
         let query_csvec = self.build_query_csvec(query);
 
         let mut similarities = self
@@ -215,7 +213,6 @@ where
             }
         }
         let new_idf = builder.into_map();
-        println!("{:?}", new_idf);
 
         //  csvecのindexを合成
         self.index.iter_mut().for_each(|(_id, (csvec, _))| {

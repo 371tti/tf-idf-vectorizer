@@ -133,7 +133,6 @@ where
         // ドキュメントごとの処理を並列化
         self.documents.par_iter().for_each(|(id, document)| {
             now_prosessing.fetch_add(1, Ordering::SeqCst);
-            println!("{} / {}", now_prosessing.load(Ordering::SeqCst), self.total_doc_count);
             let mut tf_idf_sort_vec: Vec<u16> = Vec::new();
     
             let tf_idf_vec: HashMap<String, u16> =
