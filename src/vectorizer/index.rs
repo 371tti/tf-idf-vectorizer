@@ -3,7 +3,7 @@ use std::str;
 
 use fst::{Map, MapBuilder, Streamer};
 use serde::Serialize;
-use vec_plus::vec::{sparse_vec::ZeroSparseVec, vec_trait::Math};
+use vec_plus::vec::{default_sparse_vec::DefaultSparseVec, hi_layer_sparse_vec::ZeroSparseVec, vec_trait::Math};
 
 use super::token::TokenFrequency;
 
@@ -15,7 +15,7 @@ where
 {
     // doc_id -> (圧縮ベクトル, 文書の総トークン数)
     // 圧縮ベクトル: インデックス順にトークンの TF を保持
-    pub index: HashMap<IdType, (ZeroSparseVec<u16>, u64 /* token num */)>,
+    pub index: HashMap<IdType, (DefaultSparseVec<u16>, u64 /* token num */)>,
     pub avg_tokens_len: u64,  // 全文書の平均トークン長
     pub max_tokens_len: u64,  // 全文書の最大トークン長
     pub idf: Map<Vec<u8>>,    // fst::Map 形式の IDF
@@ -30,7 +30,7 @@ where
     // コンストラクタ
     // ---------------------------------------------------------------------------------------------
     pub fn new_with_set(
-        index: HashMap<IdType, (ZeroSparseVec<u16>, u64)>,
+        index: HashMap<IdType, (DefaultSparseVec<u16>, u64)>,
         idf: Map<Vec<u8>>,
         avg_tokens_len: u64,
         max_tokens_len: u64,
@@ -45,7 +45,7 @@ where
         }
     }
 
-    pub fn get_index(&self) -> &HashMap<IdType, (ZeroSparseVec<u16>, u64)> {
+    pub fn get_index(&self) -> &HashMap<IdType, (DefaultSparseVec<u16>, u64)> {
         &self.index
     }
 
@@ -216,14 +216,14 @@ where
 
         //  csvecのindexを合成
         self.index.iter_mut().for_each(|(_id, (csvec, _))| {
-            let indices = csvec.sparse_indices_mut();
+            let indices = csvec.as_mut_slice_ind();
             for indice in indices {
                 *indice = this_new_csvec_index_vec[*indice];
             }
         });
 
         other.index.iter_mut().for_each(|(_id, (csvec, _))| {
-            let indices = csvec.sparse_indices_mut();
+            let indices = csvec.as_mut_slice_ind();
             for indice in indices {
                 *indice = other_new_csvec_index_vec[*indice];
             }
@@ -265,8 +265,8 @@ where
     // BM25 実装 (公開: ほかで呼び出したい場合のみ pub)
     // ---------------------------------------------------------------------------------------------
     pub fn bm25_with_csvec_optimized(
-        query_vec: &ZeroSparseVec<u16>, // クエリのTF-IDFベクトル（u16）
-        doc_vec: &ZeroSparseVec<u16>,   // 文書のTF-IDFベクトル（u16）
+        query_vec: &DefaultSparseVec<u16>, // クエリのTF-IDFベクトル（u16）
+        doc_vec: &DefaultSparseVec<u16>,   // 文書のTF-IDFベクトル（u16）
         doc_len: u64,           // 文書のトークン数
         avg_doc_len: f64,       // 平均文書長
         k1: f64,                // BM25のパラメータ
@@ -280,8 +280,8 @@ where
         let k1_len_norm = k1 * len_norm;
 
         // クエリと文書のインデックスおよびデータ配列を直接取得
-        let (query_indices, query_data) = (query_vec.sparse_indices(), query_vec.sparse_values());
-        let (doc_indices, doc_data) = (doc_vec.sparse_indices(), doc_vec.sparse_values());
+        let (query_indices, query_data) = (query_vec.as_slice_ind(), query_vec.as_slice_val());
+        let (doc_indices, doc_data) = (doc_vec.as_slice_ind(), doc_vec.as_slice_val());
 
         let (mut q, mut d) = (0, 0);
         let (q_len, d_len) = (query_vec.nnz(), doc_vec.nnz());
@@ -313,7 +313,7 @@ where
     // ---------------------------------------------------------------------------------------------
     // プライベート: クエリ（&str のスライス）を CsVec<u16> に変換 (IDF を用いた TF-IDF)
     // ---------------------------------------------------------------------------------------------
-    fn build_query_csvec(&self, query: &[&str]) -> ZeroSparseVec<u16> {
+    fn build_query_csvec(&self, query: &[&str]) -> DefaultSparseVec<u16> {
         // 1) クエリトークン頻度を作成
         let mut freq = TokenFrequency::new();
         freq.add_tokens(query);
@@ -332,13 +332,13 @@ where
         }
 
         // 4) CsVec に変換して返す
-        ZeroSparseVec::from(sorted_tfidf)
+        DefaultSparseVec::from(sorted_tfidf)
     }
 
     // ---------------------------------------------------------------------------------------------
     // プライベート: コサイン類似度
     // ---------------------------------------------------------------------------------------------
-    fn cos_similarity(vec_a: &ZeroSparseVec<u16>, vec_b: &ZeroSparseVec<u16>) -> f64 {
+    fn cos_similarity(vec_a: &DefaultSparseVec<u16>, vec_b: &DefaultSparseVec<u16>) -> f64 {
         // 内積
         let dot_product = vec_a.u64_dot(vec_b) as f64;
 

@@ -5,7 +5,7 @@ use fst::{MapBuilder, Streamer};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 
-use vec_plus::vec::sparse_vec::ZeroSparseVec;
+use vec_plus::vec::{default_sparse_vec::DefaultSparseVec, hi_layer_sparse_vec::ZeroSparseVec};
 
 use super::{index::Index, token::TokenFrequency};
 
@@ -144,7 +144,7 @@ where
                 tf_idf_sort_vec.push(tf_idf);
             }
     
-            let tf_idf_csvec: ZeroSparseVec<u16> = ZeroSparseVec::from(tf_idf_sort_vec);
+            let tf_idf_csvec: DefaultSparseVec<u16> = DefaultSparseVec::from(tf_idf_sort_vec);
             let doc_tokens_len = document.tokens.get_total_token_count();
     
             total_doc_tokens_len.fetch_add(doc_tokens_len, Ordering::SeqCst);
