@@ -3,7 +3,7 @@ use std::str;
 
 use fst::{Map, MapBuilder, Streamer};
 use serde::Serialize;
-use vec_plus::vec::{default_sparse_vec::DefaultSparseVec, hi_layer_sparse_vec::ZeroSparseVec, vec_trait::Math};
+use vec_plus::vec::{default_sparse_vec::DefaultSparseVec, vec_trait::Math};
 
 use super::token::TokenFrequency;
 

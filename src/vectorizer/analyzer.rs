@@ -5,7 +5,7 @@ use fst::{MapBuilder, Streamer};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 
-use vec_plus::vec::{default_sparse_vec::DefaultSparseVec, hi_layer_sparse_vec::ZeroSparseVec};
+use vec_plus::vec::default_sparse_vec::DefaultSparseVec;
 
 use super::{index::Index, token::TokenFrequency};
 

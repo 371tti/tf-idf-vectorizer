@@ -129,7 +129,7 @@ fn main() {
 
     // 2つのインデックス用の `DocumentAnalyzer` を作成
     let analyzer1 = Arc::new(Mutex::new(DocumentAnalyzer::<String>::new()));
-    let analyzer2 = Arc::new(Mutex::new(DocumentAnalyzer::<String>::new()));
+    // let analyzer2 = Arc::new(Mutex::new(DocumentAnalyzer::<String>::new()));
     let file_counter = Arc::new(AtomicUsize::new(0));
     
     // ファイルを逐次処理しつつ並列化
@@ -142,7 +142,7 @@ fn main() {
 
             let file_count = file_counter.load(Ordering::Relaxed);
 
-            if file_count >= 200 {
+            if file_count >= 40000 {
                 return Err(()); // すでに指定件数を超えている場合は処理をスキップ
             }
 
@@ -162,15 +162,10 @@ fn main() {
 
                 let token_refs: Vec<&str> = tokens.iter().map(AsRef::as_ref).collect();
                 
-                if file_count < 100 {
+
                     // インデックス1に追加
                     let mut analyzer = analyzer1.lock().unwrap();
                     analyzer.add_document(format!("index1_{}", file_name), &token_refs, None);
-                } else {
-                    // インデックス2に追加
-                    let mut analyzer = analyzer2.lock().unwrap();
-                    analyzer.add_document(format!("index2_{}", file_name), &token_refs, None);
-                }
 
                 // ファイルカウンターを増加
                 file_counter.fetch_add(1, Ordering::Relaxed);
@@ -182,18 +177,11 @@ fn main() {
     // 各インデックスの生成
     println!("Generating index 1...");
     let index1 = analyzer1.lock().unwrap().generate_index();
-    println!("Generating index 2...");
-    let index2 = analyzer2.lock().unwrap().generate_index();
-    drop(analyzer1);
-    drop(analyzer2);
-    println!("Performing search... marge");
-    let start = Instant::now();
-    let mut marged_index = index1.clone();
-    marged_index.synthesize_index(index2.clone());
-    let duration = start.elapsed();
 
-    println!("Marge result time: {:.4?}):", duration);
-    // 検索ループ
+    drop(analyzer1);
+
+
+
     loop {
         println!("Enter your search query:");
         let mut query = String::new();
@@ -206,19 +194,13 @@ fn main() {
 
         let start = Instant::now();
         let result0 = index1.search_bm25_tfidf(&query_refs, 100, 1.5, 0.0 as f64);
-        let result1 = index2.search_bm25_tfidf(&query_refs, 100, 1.5, 0.0 as f64);
-        let result2 = marged_index.search_bm25_tfidf(&query_refs, 100, 1.5, 0.0 as f64);
+
         let duration = start.elapsed();
 
         println!("Search results (Time taken: {:.2?}):", duration);
         for (doc_id, similarity) in result0 {
             println!("1Document ID: {}, Similarity: {:.4}", doc_id, similarity);
         }
-        for (doc_id, similarity) in result1 {
-            println!("2Document ID: {}, Similarity: {:.4}", doc_id, similarity);
-        }
-        for (doc_id, similarity) in result2 {
-            println!("MDocument ID: {}, Similarity: {:.4}", doc_id, similarity);
-        }
+
     }
 }
