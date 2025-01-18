@@ -142,7 +142,7 @@ fn main() {
 
             let file_count = file_counter.load(Ordering::Relaxed);
 
-            if file_count >= 40000 {
+            if file_count >= 100000 {
                 return Err(()); // すでに指定件数を超えている場合は処理をスキップ
             }
 
