@@ -1,5 +1,8 @@
-use std::collections::HashMap;
-use std::str;
+use std::fs::File;
+use std::io::{Read, Write};
+use std::path::Path;
+use std::{collections::HashMap, path};
+use std::{io, str};
 
 use fst::{Map, MapBuilder, Streamer};
 use serde::Serialize;
@@ -8,7 +11,7 @@ use vec_plus::vec::{default_sparse_vec::DefaultSparseVec, vec_trait::Math};
 use super::token::TokenFrequency;
 
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug,)]
 pub struct Index<IdType>
 where
     IdType: Clone + Eq + std::hash::Hash + Serialize + std::fmt::Debug,
@@ -353,4 +356,115 @@ where
             0.0
         }
     }
+
+    // // ---------------------------------------------------------------------------------------------
+    // // 公開メソッド: エクスポート
+    // // ---------------------------------------------------------------------------------------------
+    // pub fn export(&self, path: &Path) -> io::Result<()> {
+    //     let mut file = File::create(path)?;
+
+    //     // avg_tokens_len, max_tokens_len, total_doc_count を書き込み
+    //     file.write_all(&self.avg_tokens_len.to_le_bytes())?;
+    //     file.write_all(&self.max_tokens_len.to_le_bytes())?;
+    //     file.write_all(&self.total_doc_count.to_le_bytes())?;
+
+    //     // idf をバイト列として書き込み
+    //     let idf_bytes = self.idf.as_fst().to_vec();
+    //     let idf_len = idf_bytes.len() as u64;
+    //     file.write_all(&idf_len.to_le_bytes())?;
+    //     file.write_all(&idf_bytes)?;
+
+    //     // index のエントリ数を書き込み
+    //     let index_len = self.index.len() as u64;
+    //     file.write_all(&index_len.to_le_bytes())?;
+
+    //     // index の内容を書き込み
+    //     for (doc_id, (sparse_vec, token_num)) in &self.index {
+    //         // doc_id を文字列として書き込み
+    //         let doc_id_str = doc_id.to_string();
+    //         let doc_id_bytes = doc_id_str.as_bytes();
+    //         let doc_id_len = doc_id_bytes.len() as u64;
+    //         file.write_all(&doc_id_len.to_le_bytes())?;
+    //         file.write_all(doc_id_bytes)?;
+
+    //         // sparse_vec の内容を書き込み
+    //         let sparse_vec_len = sparse_vec.len() as u64;
+    //         file.write_all(&sparse_vec_len.to_le_bytes())?;
+    //         for (index, &value) in sparse_vec.iter() {
+    //             file.write_all(&value.to_le_bytes())?;
+    //         }
+
+    //         // token_num を書き込み
+    //         file.write_all(&token_num.to_le_bytes())?;
+    //     }
+
+    //     Ok(())
+    // }
+
+    // // ---------------------------------------------------------------------------------------------
+    // // 公開メソッド: インポート
+    // // ---------------------------------------------------------------------------------------------
+    // pub fn import(path: &Path) -> io::Result<Self> {
+    //     let mut file = File::open(path)?;
+
+    //     // avg_tokens_len, max_tokens_len, total_doc_count を読み込み
+    //     let avg_tokens_len = Self::read_u64(&mut file)?;
+    //     let max_tokens_len = Self::read_u64(&mut file)?;
+    //     let total_doc_count = Self::read_u64(&mut file)?;
+
+    //     // idf を読み込み
+    //     let idf_len = Self::read_u64(&mut file)?;
+    //     let mut idf_bytes = vec![0u8; idf_len as usize];
+    //     file.read_exact(&mut idf_bytes)?;
+    //     let idf = Map::new(idf_bytes)?;
+
+    //     // index のエントリ数を読み込み
+    //     let index_len = Self::read_u64(&mut file)?;
+
+    //     // index の内容を読み込み
+    //     let mut index = HashMap::new();
+    //     for _ in 0..index_len {
+    //         // doc_id を読み込み
+    //         let doc_id_len = Self::read_u64(&mut file)?;
+    //         let mut doc_id_bytes = vec![0u8; doc_id_len as usize];
+    //         file.read_exact(&mut doc_id_bytes)?;
+    //         let doc_id = String::from_utf8(doc_id_bytes)
+    //             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    //         let doc_id: IdType = doc_id.into();
+
+    //         // sparse_vec を読み込み
+    //         let sparse_vec_len = Self::read_u64(&mut file)?;
+    //         let mut sparse_vec = Vec::new();
+    //         for _ in 0..sparse_vec_len {
+    //             sparse_vec.push(Self::read_u16(&mut file)?);
+    //         }
+
+    //         // token_num を読み込み
+    //         let token_num = Self::read_u64(&mut file)?;
+
+    //         index.insert(doc_id, (sparse_vec, token_num));
+    //     }
+
+    //     Ok(Self {
+    //         index,
+    //         avg_tokens_len,
+    //         max_tokens_len,
+    //         idf,
+    //         total_doc_count,
+    //     })
+    // }
+
+    // /// ユーティリティ関数：u64を読み取る
+    // fn read_u64<R: Read>(reader: &mut R) -> io::Result<u64> {
+    //     let mut buffer = [0u8; 8];
+    //     reader.read_exact(&mut buffer)?;
+    //     Ok(u64::from_le_bytes(buffer))
+    // }
+
+    // /// ユーティリティ関数：u16を読み取る
+    // fn read_u16<R: Read>(reader: &mut R) -> io::Result<u16> {
+    //     let mut buffer = [0u8; 2];
+    //     reader.read_exact(&mut buffer)?;
+    //     Ok(u16::from_le_bytes(buffer))
+    // }
 }
