@@ -1,6 +1,5 @@
 use std::{path::PathBuf, sync::Arc};
 
-use rayon::result;
 use sudachi::{analysis::{stateless_tokenizer::StatelessTokenizer, Tokenize}, config::Config, dic::dictionary::JapaneseDictionary, prelude::{Mode, MorphemeList}};
 
 
