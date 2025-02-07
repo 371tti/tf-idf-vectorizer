@@ -1,8 +1,6 @@
-use std::fs::File;
-use std::io::{Read, Write};
-use std::path::Path;
-use std::{collections::HashMap, path};
-use std::{io, str};
+
+use std::collections::HashMap;
+use std::str;
 
 use fst::{Map, MapBuilder, Streamer};
 use serde::Serialize;

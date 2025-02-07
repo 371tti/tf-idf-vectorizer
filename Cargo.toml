@@ -7,5 +7,6 @@ edition = "2021"
 serde = { version = "1.0", features = ["derive"] }
 rayon = "1.5"
 fst = "0.4.7"
-vec-plus = { path = "./vec-plus" }
+vec-plus = "0.1.0"
+sudachi = { git = "https://github.com/WorksApplications/sudachi.rs", version = "0.6.11-a1" }
 
