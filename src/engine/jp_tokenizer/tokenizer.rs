@@ -10,6 +10,7 @@ pub struct JPTokenizer {
 }
 
 impl JPTokenizer {
+    /// config json file path
     pub fn new(config_path: &str) -> Self {
         let config = Config::new(Some(PathBuf::from(config_path)),None, None).expect("Failed to read config file");
         let dict = JapaneseDictionary::from_cfg(&config).expect("Failed to load dictionary");
