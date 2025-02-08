@@ -2,9 +2,14 @@
 name = "tf-idf-vectorizer"
 version = "0.1.0"
 edition = "2021"
+description = "A simple search and analyze engine"
+license = "MIT"
+repository = "https://github.com/371tti/tf-idf-vectorizer"
+keywords = ["search", "tf", "idf", "analyze"]
+categories = ["nlp"]
 
 [dependencies]
-serde = { version = "1.0", features = ["derive"] }
+serde = { version = "1.0.216", features = ["derive"] }
 rayon = "1.5"
 fst = "0.4.7"
 vec-plus = "0.1.0"
