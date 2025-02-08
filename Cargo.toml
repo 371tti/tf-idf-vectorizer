@@ -6,7 +6,6 @@ description = "A simple search and analyze engine"
 license = "MIT"
 repository = "https://github.com/371tti/tf-idf-vectorizer"
 keywords = ["search", "tf", "idf", "analyze"]
-categories = ["nlp"]
 
 [dependencies]
 serde = { version = "1.0.216", features = ["derive"] }
