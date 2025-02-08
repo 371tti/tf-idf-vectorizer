@@ -28,7 +28,7 @@ impl SearchSystem {
         match tokenize_mode {
             TokenizeMode::Lite => {
                 let ms = self.tokenizer.tokenize(content, sudachi::prelude::Mode::B);
-                letms.iter().collect();
+                ms.iter().collect();
             }
             TokenizeMode::Balanced => {
                 self.tokenizer.tokenize(content, sudachi::prelude::Mode::A);
