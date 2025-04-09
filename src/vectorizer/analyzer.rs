@@ -61,7 +61,7 @@ where
             document.text = text.map(|s| s.to_string());
             document.tokens.reset();
             document. tokens.add_tokens(content);
-            self.idf.add_tokens_string(&document.tokens.get_token_set());
+            self.idf.add_tokens(&document.tokens.get_token_set());
             return self.documents.get(&id);
         } else {
             let mut tokens = TokenFrequency::new();

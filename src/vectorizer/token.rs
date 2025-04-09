@@ -16,6 +16,7 @@ pub struct TokenFrequency {
     pub total_token_count: u64,
 }
 
+/// Tokenの追加、削除の実装
 impl TokenFrequency {
     pub fn new() -> Self {
         TokenFrequency {
@@ -24,6 +25,10 @@ impl TokenFrequency {
         }
     }
 
+    /// tokenを追加する
+    /// 
+    /// # Arguments
+    /// * `token` - 追加するトークン
     #[inline(always)]
     pub fn add_token(&mut self, token: &str) -> &mut Self {
         let count = self.token_count.entry(token.to_string()).or_insert(0);
@@ -32,34 +37,25 @@ impl TokenFrequency {
         self
     }
 
+    /// 複数のtokenを追加する
+    /// 
+    /// # Arguments
+    /// * `tokens` - 追加するトークンのスライス
     #[inline(always)]
-    pub fn add_token_n(&mut self, token: &str, n: u32) -> &mut Self {
-        let count = self.token_count.entry(token.to_string()).or_insert(0);
-        *count += n;
-        self.total_token_count += n as u64;
-        self
-    }
-
-    #[inline(always)]
-    pub fn add_tokens(&mut self, tokens: &[&str]) -> &mut Self {
-        for &token in tokens {
-            let count = self.token_count.entry(token.to_string()).or_insert(0);
-            *count += 1;
-            self.total_token_count += 1;
-        }
-        self
-    }
-
-    #[inline(always)]
-    pub fn add_tokens_string(&mut self, tokens: &[String]) -> &mut Self {
+    pub fn add_tokens<T>(&mut self, tokens: &[T]) -> &mut Self 
+    where T: AsRef<str> 
+    {
         for token in tokens {
-            let count = self.token_count.entry(token.clone()).or_insert(0);
-            *count += 1;
-            self.total_token_count += 1;
+            let token_str = token.as_ref();
+            self.add_token(token_str);
         }
         self
     }
 
+    /// tokenを引く
+    /// 
+    /// # Arguments
+    /// * `token` - 引くトークン
     #[inline(always)]
     pub fn sub_token(&mut self, token: &str) -> &mut Self {
         if let Some(count) = self.token_count.get_mut(token) {
@@ -71,43 +67,47 @@ impl TokenFrequency {
         self
     }
 
+    /// 複数のtokenを引く
+    /// 
+    /// # Arguments
+    /// * `tokens` - 引くトークンのスライス
     #[inline(always)]
-    pub fn sub_token_n(&mut self, token: &str, n: u32) -> &mut Self {
-        if let Some(count) = self.token_count.get_mut(token) {
-            if *count >= n {
-                *count -= n;
-                self.total_token_count -= n as u64;
-            }
-        }
-        self
-    }
-
-    #[inline(always)]
-    pub fn sub_tokens(&mut self, tokens: &[&str]) -> &mut Self {
-        for &token in tokens {
-            if let Some(count) = self.token_count.get_mut(token) {
-                if *count > 0 {
-                    *count -= 1;
-                    self.total_token_count -= 1;
-                }
-            }
-        }
-        self
-    }
-
-    #[inline(always)]
-    pub fn sub_tokens_string(&mut self, tokens: &[String]) -> &mut Self {
+    pub fn sub_tokens<T>(&mut self, tokens: &[T]) -> &mut Self 
+    where T: AsRef<str>
+    {
         for token in tokens {
-            if let Some(count) = self.token_count.get_mut(token.as_str()) {
-                if *count > 0 {
-                    *count -= 1;
-                    self.total_token_count -= 1;
-                }
-            }
+            let token_str = token.as_ref();
+            self.sub_token(token_str);
         }
         self
     }
 
+    /// tokenの出現回数を指定する
+    /// 
+    /// # Arguments
+    /// * `token` - トークン
+    /// * `count` - 出現回数
+    pub fn set_token_count(&mut self, token: &str, count: u32) -> &mut Self {
+        if let Some(existing_count) = self.token_count.get_mut(token) {
+            if count >= *existing_count {
+                self.total_token_count += count as u64 - *existing_count as u64;
+            } else {
+                self.total_token_count -= *existing_count as u64 - count as u64;
+            }
+            *existing_count = count;
+        } else {
+            self.token_count.insert(token.to_string(), count);
+            self.total_token_count += count as u64;
+        }
+        self
+    }
+}
+
+pub trait TFCalc {
+
+}
+/// TF-calculationの実装
+impl TokenFrequency {
     #[inline(always)]
     pub fn tf_calc(max_count: u32, count: u32) -> f64 {
         (count as f64 + 1.0).ln() / (max_count as f64 + 1.0).ln()
