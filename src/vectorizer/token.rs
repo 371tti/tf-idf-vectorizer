@@ -2,8 +2,11 @@ use core::str;
 use std::{collections::{hash_map::Keys, HashMap, HashSet}, fmt::Debug};
 
 use fst::Map;
+use num::Num;
 use serde::{Deserialize, Serialize};
 use rayon::prelude::*;
+
+use crate::utils::scaler::{AttachedNormalizer, Normalizer};
 
 /*
 /// paralel操作は順序が保証されないため、順序が重要な場合は注意が必要
@@ -107,70 +110,35 @@ pub trait TFCalc {
 
 }
 /// TF-calculationの実装
-impl TokenFrequency {
+impl TokenFrequency
+{
     #[inline(always)]
     pub fn tf_calc(max_count: u32, count: u32) -> f64 {
         (count as f64 + 1.0).ln() / (max_count as f64 + 1.0).ln()
     }
 
-    #[inline(always)]
-    pub fn tf_calc_as_u16(max_count: u32, count: u32) -> u16 {
-        let normalized_value = (count as f64 + 1.0).ln() / (max_count as f64 + 1.0).ln();
-        // 0～65535 にスケール
-        (normalized_value * 65535.0).round() as u16
-    }
-    
-    #[inline(always)]
-    pub fn tf_calc_as_u32(max_count: u32, count: u32) -> u32 {
-        let normalized_value = (count as f64 + 1.0).ln() / (max_count as f64 + 1.0).ln();
-        // 0～4294967295 にスケール
-        (normalized_value * 4294967295.0).round() as u32
-    }
-
     // Vec<(String, u16)>を取得
     #[inline(always)]
-    pub fn get_tf_vector(&self) -> Vec<(String, u16)> {
+    pub fn to_tf_vector<N>(&self) -> Vec<(String, N)> 
+    where f64: Normalizer<N>, N: Num {
         let max_count = self.get_most_frequent_token_count();
         self.token_count
             .iter()
             .map(|(token, &count)| {
-                (token.clone(), Self::tf_calc_as_u16(max_count, count))
-            })
-            .collect()
-    }
-
-    // 並列処理でVec<(String, u16)>を取得
-    #[inline(always)]
-    pub fn get_tf_vector_parallel(&self) -> Vec<(String, u16)> {
-        let max_count = self.get_most_frequent_token_count();
-        self.token_count
-            .par_iter()
-            .map(|(token, &count)| {
-                (token.clone(), Self::tf_calc_as_u16(max_count, count))
+                (token.clone(), Self::tf_calc(max_count, count).into_normalized())
             })
             .collect()
     }
 
     // Vec<(&str, u16)>を取得
     #[inline(always)]
-    pub fn get_tf_vector_ref(&self) -> Vec<(&str, u16)> {
+    pub fn get_tf_vector_ref<N>(&self) -> Vec<(&str, N)>
+    where f64: Normalizer<N>, N: Num {
         let max_count = self.get_most_frequent_token_count();
         self.token_count
             .iter()
             .map(|(token, &count)| {
-                (token.as_str(), Self::tf_calc_as_u16(max_count, count))
-            })
-            .collect()
-    }
-
-    // 並列処理でVec<(&str, u16)>を取得
-    #[inline(always)]
-    pub fn get_tf_vector_ref_parallel(&self) -> Vec<(&str, u16)> {
-        let max_count = self.get_most_frequent_token_count();
-        self.token_count
-            .par_iter()
-            .map(|(token, &count)| {
-                (token.as_str(), Self::tf_calc_as_u16(max_count, count))
+                (token.as_str(), Self::tf_calc(max_count, count).into_normalized())
             })
             .collect()
     }
@@ -187,36 +155,12 @@ impl TokenFrequency {
             .collect()
     }
 
-    // 並列処理でHashMap<String, u16>を取得
-    #[inline(always)]
-    pub fn get_tf_hashmap_parallel(&self) -> HashMap<String, u16> {
-        let max_count = self.get_most_frequent_token_count();
-        self.token_count
-            .par_iter()
-            .map(|(token, &count)| {
-                (token.clone(), Self::tf_calc_as_u16(max_count, count))
-            })
-            .collect()
-    }
-
     // HashMap<&str, u16>を取得
     #[inline(always)]
     pub fn get_tf_hashmap_ref(&self) -> HashMap<&str, u16> {
         let max_count = self.get_most_frequent_token_count();
         self.token_count
             .iter()
-            .map(|(token, &count)| {
-                (token.as_str(), Self::tf_calc_as_u16(max_count, count))
-            })
-            .collect()
-    }
-
-    // 並列処理でHashMap<&str, u16>を取得
-    #[inline(always)]
-    pub fn get_tf_hashmap_ref_parallel(&self) -> HashMap<&str, u16> {
-        let max_count = self.get_most_frequent_token_count();
-        self.token_count
-            .par_iter()
             .map(|(token, &count)| {
                 (token.as_str(), Self::tf_calc_as_u16(max_count, count))
             })
