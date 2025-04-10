@@ -12,5 +12,5 @@ serde = { version = "1.0.216", features = ["derive"] }
 rayon = "1.5"
 fst = "0.4.7"
 vec-plus = "0.1.0"
-# sudachi = { git = "https://github.com/WorksApplications/sudachi.rs", version = "0.6.11-a1" }
+num = "0.4.3"
 

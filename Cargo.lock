@@ -192,6 +192,7 @@ name = "tf-idf-vectorizer"
 version = "0.0.1"
 dependencies = [
  "fst",
+ "num",
  "rayon",
  "serde",
  "vec-plus",
