@@ -272,9 +272,9 @@ impl TokenFrequency {
         *self.token_count.get(token).unwrap_or(&0)
     }
 
-    /// 
+    /// 最も頻繁に出現するトークンたち
     #[inline(always)]
-    pub fn frequent_tokens(&self) -> Vec<(String, u32)> {
+    pub fn most_frequent_tokens_vector(&self) -> Vec<(String, u32)> {
         if let Some(&max_count) = self.token_count.values().max() {
             self.token_count.iter()
                 .filter(|&(_, &count)| count == max_count)
@@ -286,7 +286,7 @@ impl TokenFrequency {
     }
 
     #[inline(always)]
-    pub fn get_most_frequent_token_count(&self) -> u32 {
+    pub fn most_frequent_token_count(&self) -> u32 {
         if let Some(&max_count) = self.token_count.values().max() {
             max_count
         } else {
@@ -295,247 +295,39 @@ impl TokenFrequency {
     }
 
     #[inline(always)]
-    pub fn get_most_frequent_tokens_parallel(&self) -> Vec<(String, u32)> {
-        if self.token_count.is_empty() {
-            return Vec::new();
-        }
-        let max_frequency = self
-            .token_count
-            .par_iter()
-            .map(|(_, &count)| count)
-            .max()
-            .unwrap();
-        self.token_count
-            .par_iter()
-            .filter(|&(_, &count)| count == max_frequency)
-            .map(|(token, &count)| (token.clone(), count))
-            .collect()
-    }
-
-    #[inline(always)]
-    pub fn tfidf_calc(tf : f64, idf: f64) -> f64 {
-        tf * idf
-    }
-
-    #[inline(always)]
-    pub fn tfidf_calc_as_u16(tf: u16, idf: u16) -> u16 {
-        let product = tf as u32 * idf as u32;
-        ((product + 65_535) / 65_536) as u16
-    }
-
-    #[inline(always)]
-    pub fn tfidf_calc_as_u32(tf : u32, idf: u32) -> u32 {
-        let product = tf as u64 * idf as u64;
-        ((product + 4_294_967_295) / 4_294_967_296) as u32
-    }
-
-    #[inline(always)]
-    pub fn get_tfidf_vector(&self, idf_map: &HashMap<String, u16>) -> Vec<(String, u16)> {
-        self.token_count.iter().map(|(token, &count)| {
-            let tf = Self::tf_calc_as_u16(self.get_most_frequent_token_count(), count);
-            let idf = idf_map.get(token).copied().unwrap_or(0);
-            (token.clone(), Self::tfidf_calc_as_u16(tf, idf))
-        }).collect()
-    }
-
-    #[inline(always)]
-    pub fn get_tfidf_vector_fst(&self, idf_map: &Map<Vec<u8>>) -> Vec<(String, u16)> {
-        self.token_count.iter().map(|(token, &count)| {
-            let tf = Self::tf_calc_as_u16(self.get_most_frequent_token_count(), count);
-            let idf = match idf_map.get(token.as_bytes()) {
-                Some(idf) => idf as u16,
-                None => 0,
-            };
-            (token.clone(), Self::tfidf_calc_as_u16(tf, idf))
-        }).collect()
-    }
-
-    #[inline(always)]
-    pub fn get_tfidf_hashmap(&self, idf_map: &HashMap<String, u16>) -> HashMap<String, u16> {
-        self.token_count.iter().map(|(token, &count)| {
-            let tf = Self::tf_calc_as_u16(self.get_most_frequent_token_count(), count);
-            let idf = idf_map.get(token).copied().unwrap_or(0);
-            (token.clone(), Self::tfidf_calc_as_u16(tf, idf))
-        }).collect()
-    }
-
-    #[inline(always)]
-    pub fn get_tfidf_hashmap_fst(&self, idf_map: &Map<Vec<u8>>) -> HashMap<String, u16> {
-        self.token_count.iter().map(|(token, &count)| {
-            let tf = Self::tf_calc_as_u16(self.get_most_frequent_token_count(), count);
-            let idf = match idf_map.get(token.as_bytes()) {
-                Some(idf) => idf as u16,
-                None => 0,
-            };
-            (token.clone(), Self::tfidf_calc_as_u16(tf, idf))
-        }).collect()
-    }
-
-    #[inline(always)]
-    pub fn get_tfidf_vector_parallel(&self, idf_map: &HashMap<String, u16>) -> Vec<(String, u16)> {
-        self.token_count
-            .par_iter()
-            .map(|(token, &count)| {
-                let tf = Self::tf_calc_as_u16(self.get_most_frequent_token_count(), count);
-                let idf = idf_map.get(token).copied().unwrap_or(0);
-                (token.clone(), Self::tfidf_calc_as_u16(tf, idf))
-            })
-            .collect()
-    }
-
-    #[inline(always)]
-    pub fn get_tfidf_vector_fst_parallel(&self, idf_map: &Map<Vec<u8>>) -> Vec<(String, u16)> {
-        self.token_count
-            .par_iter()
-            .map(|(token, &count)| {
-                let tf = Self::tf_calc_as_u16(self.get_most_frequent_token_count(), count);
-                let idf = match idf_map.get(token.as_bytes()) {
-                    Some(idf) => idf as u16,
-                    None => 0,
-                };
-                (token.clone(), Self::tfidf_calc_as_u16(tf, idf))
-            })
-            .collect()
-    }
-
-    #[inline(always)]
-    pub fn get_tfidf_hashmap_parallel(&self, idf_map: &HashMap<String, u16>) -> HashMap<String, u16> {
-        self.token_count
-            .par_iter()
-            .map(|(token, &count)| {
-                let tf = Self::tf_calc_as_u16(self.get_most_frequent_token_count(), count);
-                let idf = idf_map.get(token).copied().unwrap_or(0);
-                (token.clone(), Self::tfidf_calc_as_u16(tf, idf))
-            })
-            .collect()
-    }
-
-    #[inline(always)]
-    pub fn get_tfidf_hashmap_fst_parallel(&self, idf_map: &Map<Vec<u8>>) -> HashMap<String, u16> {
-        self.token_count
-            .par_iter()
-            .map(|(token, &count)| {
-                let tf = Self::tf_calc_as_u16(self.get_most_frequent_token_count(), count);
-                let idf = match idf_map.get(token.as_bytes()) {
-                    Some(idf) => idf as u16,
-                    None => 0,
-                };
-                (token.clone(), Self::tfidf_calc_as_u16(tf, idf))
-            })
-            .collect()
-    }
-
-    #[inline(always)]
     pub fn contains_token(&self, token: &str) -> bool {
         self.token_count.contains_key(token)
     }
 
     #[inline(always)]
-    pub fn get_token_set(&self) -> Vec<String> {
+    pub fn token_set(&self) -> Vec<String> {
         self.token_count.keys().cloned().collect()
     }
 
     #[inline(always)]
-    pub fn get_token_set_ref(&self) -> Vec<&str> {
+    pub fn token_set_ref_str(&self) -> Vec<&str> {
         self.token_count.keys().map(|s| s.as_str()).collect()
     }
 
     #[inline(always)]
-    pub fn get_token_hashset(&self) -> HashSet<String> {
+    pub fn token_hashset(&self) -> HashSet<String> {
         self.token_count.keys().cloned().collect()
     }
 
     #[inline(always)]
-    pub fn get_token_hashset_ref(&self) -> HashSet<&str> {
+    pub fn token_hashset_ref_str(&self) -> HashSet<&str> {
         self.token_count.keys().map(|s| s.as_str()).collect()
     }
 
     #[inline(always)]
-    pub fn get_token_set_len(&self) -> usize {
+    pub fn token_num(&self) -> usize {
         self.token_count.len()
-    }
-
-    #[inline(always)]
-    pub fn get_token_set_iter(&self) -> Keys<String, u32> {
-        self.token_count.keys()
-    }
-
-    #[inline(always)]
-    pub fn get_token_set_iter_ref(&self) -> impl Iterator<Item = &str> {
-        self.token_count.keys().map(|s| s.as_str())
-    }
-
-    #[inline(always)]
-    pub fn get_token_length_stats(&self) -> Option<(usize, usize, f64)> {
-        if self.token_count.is_empty() {
-            return None;
-        }
-
-        let lengths: Vec<usize> = self.token_count.keys().map(|token| token.len()).collect();
-        let min_len = *lengths.iter().min().unwrap();
-        let max_len = *lengths.iter().max().unwrap();
-        let avg_len = lengths.iter().sum::<usize>() as f64 / lengths.len() as f64;
-
-        Some((min_len, max_len, avg_len))
-    }
-
-    #[inline(always)]
-    pub fn get_token_length_stats_ref(&self) -> Option<(usize, usize, f64)> {
-        if self.token_count.is_empty() {
-            return None;
-        }
-
-        let lengths: Vec<usize> = self.token_count.keys().map(|token| token.len()).collect();
-        let min_len = *lengths.iter().min().unwrap();
-        let max_len = *lengths.iter().max().unwrap();
-        let avg_len = lengths.iter().sum::<usize>() as f64 / lengths.len() as f64;
-
-        Some((min_len, max_len, avg_len))
-    }
-
-    #[inline(always)]
-    pub fn get_token_length_stats_parallel(&self) -> Option<(usize, usize, f64)> {
-        if self.token_count.is_empty() {
-            return None;
-        }
-
-        let (min_len, max_len, total_len, count) = self.token_count
-            .par_iter()
-            .map(|(token, _)| (token.len(), token.len(), token.len(), 1))
-            .reduce(
-                || (usize::MAX, 0, 0, 0),
-                |acc, len| {
-                    let min_len = acc.0.min(len.0);
-                    let max_len = acc.1.max(len.1);
-                    let total_len = acc.2 + len.2;
-                    let count = acc.3 + len.3;
-                    (min_len, max_len, total_len, count)
-                },
-            );
-
-        Some((min_len, max_len, total_len as f64 / count as f64))
     }
 
     #[inline(always)]
     pub fn remove_stop_tokens(&mut self, stop_tokens: &[&str]) {
         for &stop_token in stop_tokens {
             if let Some(count) = self.token_count.remove(stop_token) {
-                self.total_token_count -= count as u64;
-            }
-        }
-    }
-
-    #[inline(always)]
-    pub fn remove_stop_tokens_parallel(&mut self, stop_tokens: &[&str]) {
-        let to_remove: Vec<String> = stop_tokens
-            .par_iter()
-            .filter_map(|&stop_token| {
-                self.token_count.get(stop_token).map(|_| stop_token.to_string())
-            })
-            .collect();
-
-        for token in to_remove {
-            if let Some(count) = self.token_count.remove(&token) {
                 self.total_token_count -= count as u64;
             }
         }
@@ -561,7 +353,7 @@ impl TokenFrequency {
     }
 
     #[inline(always)]
-    pub fn get_sorted_by_frequency_desc(&self) -> Vec<(String, u32)> {
+    pub fn sorted_frequency_vector(&self) -> Vec<(String, u32)> {
         let mut token_list: Vec<(String, u32)> = self.token_count
             .iter()
             .map(|(token, &count)| (token.clone(), count))
