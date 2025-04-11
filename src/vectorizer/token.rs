@@ -62,8 +62,11 @@ impl TokenFrequency {
     #[inline(always)]
     pub fn sub_token(&mut self, token: &str) -> &mut Self {
         if let Some(count) = self.token_count.get_mut(token) {
-            if *count > 0 {
+            if *count > 1 {
                 *count -= 1;
+                self.total_token_count -= 1;
+            } else if *count == 1 {
+                self.token_count.remove(token);
                 self.total_token_count -= 1;
             }
         }
@@ -106,9 +109,6 @@ impl TokenFrequency {
     }
 }
 
-pub trait TFCalc {
-
-}
 /// TF-calculationの実装
 impl TokenFrequency
 {
@@ -119,7 +119,7 @@ impl TokenFrequency
 
     // Vec<(String, u16)>を取得
     #[inline(always)]
-    pub fn to_tf_vector<N>(&self) -> Vec<(String, N)> 
+    pub fn tf_vector<N>(&self) -> Vec<(String, N)> 
     where f64: Normalizer<N>, N: Num {
         let max_count = self.get_most_frequent_token_count();
         self.token_count
@@ -132,7 +132,7 @@ impl TokenFrequency
 
     // Vec<(&str, u16)>を取得
     #[inline(always)]
-    pub fn get_tf_vector_ref<N>(&self) -> Vec<(&str, N)>
+    pub fn tf_vector_ref_str<N>(&self) -> Vec<(&str, N)>
     where f64: Normalizer<N>, N: Num {
         let max_count = self.get_most_frequent_token_count();
         self.token_count
@@ -145,36 +145,42 @@ impl TokenFrequency
 
     // HashMap<String, u16>を取得
     #[inline(always)]
-    pub fn get_tf_hashmap(&self) -> HashMap<String, u16> {
+    pub fn tf_hashmap<N>(&self) -> HashMap<String, N> 
+    where f64: Normalizer<N>, N: Num {
         let max_count = self.get_most_frequent_token_count();
         self.token_count
             .iter()
             .map(|(token, &count)| {
-                (token.clone(), Self::tf_calc_as_u16(max_count, count))
+                (token.clone(), Self::tf_calc(max_count, count).into_normalized())
             })
             .collect()
     }
 
     // HashMap<&str, u16>を取得
     #[inline(always)]
-    pub fn get_tf_hashmap_ref(&self) -> HashMap<&str, u16> {
+    pub fn tf_hashmap_ref_str<N>(&self) -> HashMap<&str, N> 
+    where f64: Normalizer<N>, N: Num {
         let max_count = self.get_most_frequent_token_count();
         self.token_count
             .iter()
             .map(|(token, &count)| {
-                (token.as_str(), Self::tf_calc_as_u16(max_count, count))
+                (token.as_str(), Self::tf_calc(max_count, count).into_normalized())
             })
             .collect()
     }
 
     // 特定のトークンのTFを取得
     #[inline(always)]
-    pub fn get_token_tf(&self, token: &str) -> u16 {
+    pub fn tf_token<N>(&self, token: &str) -> N 
+    where f64: Normalizer<N>, N: Num{
         let max_count = self.get_most_frequent_token_count();
         let count = self.token_count.get(token).copied().unwrap_or(0);
-        Self::tf_calc_as_u16(max_count, count)
+        Self::tf_calc(max_count, count).into_normalized()
     }
+}
 
+/// IDF-calculationの実装
+impl TokenFrequency {
     #[inline(always)]
     pub fn idf_max(&self, total_doc_count: u64) -> f64 {
         (1.0 + total_doc_count as f64 / (2.0)).ln()
@@ -186,136 +192,89 @@ impl TokenFrequency
     }
 
     #[inline(always)]
-    pub fn idf_calc_as_u16(total_doc_count: u64, max_idf: f64, doc_count: u32) -> u16 {
-        let normalized_value = (1.0 + total_doc_count as f64 / (1.0 + doc_count as f64)).ln() / max_idf;
-        // 0～65535 にスケール
-        (normalized_value * 65535.0).round() as u16
-    }
-
-    #[inline(always)]
-    pub fn idf_calc_as_u32(total_doc_count: u64, max_idf: f64, doc_count: u32) -> u32 {
-        let normalized_value = (1.0 + total_doc_count as f64 / (1.0 + doc_count as f64)).ln() / max_idf;
-        // 0～4294967295 にスケール
-        (normalized_value * 4294967295.0).round() as u32
-    }
-
-    #[inline(always)]
-    pub fn get_idf_vector(&self, total_doc_count: u64) -> Vec<(String, u16)> {
+    pub fn idf_vector<N>(&self, total_doc_count: u64) -> Vec<(String, N)> 
+    where f64: Normalizer<N>, N: Num {
         self.token_count
             .iter()
             .map(|(token, &doc_count)| {
-                let idf = Self::idf_calc_as_u16(total_doc_count, self.idf_max(total_doc_count), doc_count);
-                (token.clone(), idf)
+                let idf = Self::idf_calc(total_doc_count, self.idf_max(total_doc_count), doc_count);
+                (token.clone(), idf.into_normalized())
             })
             .collect()
     }
 
     #[inline(always)]
-    pub fn get_idf_vector_ref(&self, total_doc_count: u64) -> Vec<(&str, u16)> {
+    pub fn idf_vector_ref_str<N>(&self, total_doc_count: u64) -> Vec<(&str, N)> 
+    where f64: Normalizer<N>, N: Num {
         self.token_count.iter().map(|(token, &doc_count)| {
-            let idf = Self::idf_calc_as_u16(total_doc_count, self.idf_max(total_doc_count), doc_count);
-            (token.as_str(), idf)
+            let idf = Self::idf_calc(total_doc_count, self.idf_max(total_doc_count), doc_count);
+            (token.as_str(), idf.into_normalized())
         }).collect()
     }
 
     #[inline(always)]
-    pub fn get_idf_vector_parallel(&self, total_doc_count: u64) -> Vec<(String, u16)> {
-        self.token_count
-            .par_iter()
-            .map(|(token, &doc_count)| {
-                let idf = Self::idf_calc_as_u16(total_doc_count, self.idf_max(total_doc_count), doc_count);
-                (token.clone(), idf)
-            })
-            .collect()
-    }
-
-    #[inline(always)]
-    pub fn get_idf_vector_ref_parallel(&self, total_doc_count: u64) -> Vec<(&str, u16)> {
-        self.token_count.par_iter().map(|(token, &doc_count)| {
-            let idf = Self::idf_calc_as_u16(total_doc_count, self.idf_max(total_doc_count), doc_count);
-            (token.as_str(), idf)
-        }).collect()
-    }
-
-    #[inline(always)]
-    pub fn get_idf_hashmap(&self, total_doc_count: u64) -> HashMap<String, u16> {
+    pub fn idf_hashmap<N>(&self, total_doc_count: u64) -> HashMap<String, N> 
+    where f64: Normalizer<N>, N: Num {
         self.token_count
             .iter()
             .map(|(token, &doc_count)| {
-                let idf = Self::idf_calc_as_u16(total_doc_count, self.idf_max(total_doc_count), doc_count);
-                (token.clone(), idf)
+                let idf = Self::idf_calc(total_doc_count, self.idf_max(total_doc_count), doc_count);
+                (token.clone(), idf.into_normalized())
             })
             .collect()
     }
 
     #[inline(always)]
-    pub fn get_idf_hashmap_ref(&self, total_doc_count: u64) -> HashMap<&str, u16> {
+    pub fn idf_hashmap_ref_str<N>(&self, total_doc_count: u64) -> HashMap<&str, N> 
+    where f64: Normalizer<N>, N: Num {
         self.token_count.iter().map(|(token, &doc_count)| {
-            let idf = Self::idf_calc_as_u16(total_doc_count, self.idf_max(total_doc_count), doc_count);
-            (token.as_str(), idf)
+            let idf = Self::idf_calc(total_doc_count, self.idf_max(total_doc_count), doc_count);
+            (token.as_str(), idf.into_normalized())
         }).collect()
     }
+}
 
+/// TokenFrequencyの情報を取得するための実装
+impl TokenFrequency {
     #[inline(always)]
-    pub fn get_idf_hashmap_parallel(&self, total_doc_count: u64) -> HashMap<String, u16> {
-        self.token_count
-            .par_iter()
-            .map(|(token, &doc_count)| {
-                let idf = Self::idf_calc_as_u16(total_doc_count, self.idf_max(total_doc_count), doc_count);
-                (token.clone(), idf)
-            })
-            .collect()
-    }
-
-    #[inline(always)]
-    pub fn get_idf_hashmap_ref_parallel(&self, total_doc_count: u64) -> HashMap<&str, u16> {
-        self.token_count.par_iter().map(|(token, &doc_count)| {
-            let idf = Self::idf_calc_as_u16(total_doc_count, self.idf_max(total_doc_count), doc_count);
-            (token.as_str(), idf)
-        }).collect()
-    }
-
-    #[inline(always)]
-    pub fn get_token_count_vector(&self) -> Vec<(String, u32)> {
+    pub fn token_count_vector(&self) -> Vec<(String, u32)> {
         self.token_count.iter().map(|(token, &count)| {
             (token.clone(), count)
         }).collect()
     }
 
     #[inline(always)]
-    pub fn get_token_count_hashmap(&self) -> HashMap<String, u32> {
-        self.token_count.clone()
-    }
-
-    #[inline(always)]
-    pub fn get_token_count_hashmap_ref(&self) -> HashMap<&str, u32> {
+    pub fn token_count_vector_ref_str(&self) -> Vec<(&str, u32)> {
         self.token_count.iter().map(|(token, &count)| {
             (token.as_str(), count)
         }).collect()
     }
 
     #[inline(always)]
-    pub fn get_total_token_count(&self) -> u64 {
+    pub fn token_count_hashmap(&self) -> HashMap<String, u32> {
+        self.token_count.clone()
+    }
+
+    #[inline(always)]
+    pub fn token_count_hashmap_ref_str(&self) -> HashMap<&str, u32> {
+        self.token_count.iter().map(|(token, &count)| {
+            (token.as_str(), count)
+        }).collect()
+    }
+
+    #[inline(always)]
+    pub fn token_total_count(&self) -> u64 {
         self.total_token_count
     }
 
     #[inline(always)]
-    pub fn get_total_token_count_ref(&self) -> &u64 {
-        &self.total_token_count
-    }
-
-    #[inline(always)]
-    pub fn get_token_count(&self, token: &str) -> u32 {
+    pub fn token_count(&self, token: &str) -> u32 {
         *self.token_count.get(token).unwrap_or(&0)
     }
 
+    /// 
     #[inline(always)]
-    pub fn get_token_count_ref(&self, token: &str) -> &u32 {
-        self.token_count.get(token).unwrap_or(&0)
-    }
-
-    #[inline(always)]
-    pub fn get_most_frequent_tokens(&self) -> Vec<(String, u32)> {
+    pub fn frequent_tokens(&self) -> Vec<(String, u32)> {
         if let Some(&max_count) = self.token_count.values().max() {
             self.token_count.iter()
                 .filter(|&(_, &count)| count == max_count)
