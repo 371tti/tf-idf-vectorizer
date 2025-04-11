@@ -1,16 +1,10 @@
 use core::str;
-use std::{collections::{hash_map::Keys, HashMap, HashSet}, fmt::Debug};
+use std::{collections::{HashMap, HashSet}, fmt::Debug};
 
-use fst::Map;
 use num::Num;
 use serde::{Deserialize, Serialize};
-use rayon::prelude::*;
 
-use crate::utils::scaler::{AttachedNormalizer, Normalizer};
-
-/*
-/// paralel操作は順序が保証されないため、順序が重要な場合は注意が必要
-*/
+use crate::utils::scaler::Normalizer;
 
 ///  TokenFrequency 構造体
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -121,7 +115,7 @@ impl TokenFrequency
     #[inline(always)]
     pub fn tf_vector<N>(&self) -> Vec<(String, N)> 
     where f64: Normalizer<N>, N: Num {
-        let max_count = self.get_most_frequent_token_count();
+        let max_count = self.most_frequent_token_count();
         self.token_count
             .iter()
             .map(|(token, &count)| {
@@ -134,7 +128,7 @@ impl TokenFrequency
     #[inline(always)]
     pub fn tf_vector_ref_str<N>(&self) -> Vec<(&str, N)>
     where f64: Normalizer<N>, N: Num {
-        let max_count = self.get_most_frequent_token_count();
+        let max_count = self.most_frequent_token_count();
         self.token_count
             .iter()
             .map(|(token, &count)| {
@@ -147,7 +141,7 @@ impl TokenFrequency
     #[inline(always)]
     pub fn tf_hashmap<N>(&self) -> HashMap<String, N> 
     where f64: Normalizer<N>, N: Num {
-        let max_count = self.get_most_frequent_token_count();
+        let max_count = self.most_frequent_token_count();
         self.token_count
             .iter()
             .map(|(token, &count)| {
@@ -160,7 +154,7 @@ impl TokenFrequency
     #[inline(always)]
     pub fn tf_hashmap_ref_str<N>(&self) -> HashMap<&str, N> 
     where f64: Normalizer<N>, N: Num {
-        let max_count = self.get_most_frequent_token_count();
+        let max_count = self.most_frequent_token_count();
         self.token_count
             .iter()
             .map(|(token, &count)| {
@@ -173,7 +167,7 @@ impl TokenFrequency
     #[inline(always)]
     pub fn tf_token<N>(&self, token: &str) -> N 
     where f64: Normalizer<N>, N: Num{
-        let max_count = self.get_most_frequent_token_count();
+        let max_count = self.most_frequent_token_count();
         let count = self.token_count.get(token).copied().unwrap_or(0);
         Self::tf_calc(max_count, count).into_normalized()
     }
@@ -352,6 +346,7 @@ impl TokenFrequency {
         removed_total_count
     }
 
+    /// 頻度でソートされたトークンのベクタを取得
     #[inline(always)]
     pub fn sorted_frequency_vector(&self) -> Vec<(String, u32)> {
         let mut token_list: Vec<(String, u32)> = self.token_count
@@ -364,40 +359,7 @@ impl TokenFrequency {
     }
 
     #[inline(always)]
-    pub fn get_sorted_by_frequency_desc_parallel(&self) -> Vec<(String, u32)> {
-        let mut token_list: Vec<(String, u32)> = self.token_count
-            .par_iter()
-            .map(|(token, &count)| (token.clone(), count))
-            .collect();
-
-        token_list.par_sort_by(|a, b| b.1.cmp(&a.1));
-        token_list
-    }
-
-    #[inline(always)]
-    pub fn get_sorted_by_frequency_asc(&self) -> Vec<(String, u32)> {
-        let mut token_list: Vec<(String, u32)> = self.token_count
-            .iter()
-            .map(|(token, &count)| (token.clone(), count))
-            .collect();
-
-        token_list.sort_by(|a, b| a.1.cmp(&b.1));
-        token_list
-    }
-
-    #[inline(always)]
-    pub fn get_sorted_by_frequency_asc_parallel(&self) -> Vec<(String, u32)> {
-        let mut token_list: Vec<(String, u32)> = self.token_count
-            .par_iter()
-            .map(|(token, &count)| (token.clone(), count))
-            .collect();
-
-        token_list.par_sort_by(|a, b| a.1.cmp(&b.1));
-        token_list
-    }
-
-    #[inline(always)]
-    pub fn get_sorted_by_alphabetical_asc(&self) -> Vec<(String, u32)> {
+    pub fn sorted_dict_order_vector(&self) -> Vec<(String, u32)> {
         let mut token_list: Vec<(String, u32)> = self.token_count
             .iter()
             .map(|(token, &count)| (token.clone(), count))
@@ -407,93 +369,19 @@ impl TokenFrequency {
         token_list
     }
 
+    /// tokenの多様性を計算します
+    /// 1.0は完全な多様性を示し、0.0は完全な非多様性を示します
     #[inline(always)]
-    pub fn get_sorted_by_alphabetical_asc_parallel(&self) -> Vec<(String, u32)> {
-        let mut token_list: Vec<(String, u32)> = self.token_count
-            .par_iter()
-            .map(|(token, &count)| (token.clone(), count))
-            .collect();
-
-        token_list.par_sort_by(|a, b| a.0.cmp(&b.0));
-        token_list
-    }
-
-    #[inline(always)]
-    pub fn get_sorted_by_alphabetical_desc(&self) -> Vec<(String, u32)> {
-        let mut token_list: Vec<(String, u32)> = self.token_count
-            .iter()
-            .map(|(token, &count)| (token.clone(), count))
-            .collect();
-
-        token_list.sort_by(|a, b| b.0.cmp(&a.0));
-        token_list
-    }
-
-    #[inline(always)]
-    pub fn get_sorted_by_alphabetical_desc_parallel(&self) -> Vec<(String, u32)> {
-        let mut token_list: Vec<(String, u32)> = self.token_count
-            .par_iter()
-            .map(|(token, &count)| (token.clone(), count))
-            .collect();
-
-        token_list.par_sort_by(|a, b| b.0.cmp(&a.0));
-        token_list
-    }
-
-    #[inline(always)]
-    pub fn get_sorted_by_length_desc(&self) -> Vec<(String, u32)> {
-        let mut token_list: Vec<(String, u32)> = self.token_count
-            .iter()
-            .map(|(token, &count)| (token.clone(), count))
-            .collect();
-
-        token_list.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
-        token_list
-    }
-
-    #[inline(always)]
-    pub fn get_sorted_by_length_desc_parallel(&self) -> Vec<(String, u32)> {
-        let mut token_list: Vec<(String, u32)> = self.token_count
-            .par_iter()
-            .map(|(token, &count)| (token.clone(), count))
-            .collect();
-
-        token_list.par_sort_by(|a, b| b.0.len().cmp(&a.0.len()));
-        token_list
-    }
-
-    #[inline(always)]
-    pub fn get_sorted_by_length_asc(&self) -> Vec<(String, u32)> {
-        let mut token_list: Vec<(String, u32)> = self.token_count
-            .iter()
-            .map(|(token, &count)| (token.clone(), count))
-            .collect();
-
-        token_list.sort_by(|a, b| a.0.len().cmp(&b.0.len()));
-        token_list
-    }
-
-    #[inline(always)]
-    pub fn get_sorted_by_length_asc_parallel(&self) -> Vec<(String, u32)> {
-        let mut token_list: Vec<(String, u32)> = self.token_count
-            .par_iter()
-            .map(|(token, &count)| (token.clone(), count))
-            .collect();
-
-        token_list.par_sort_by(|a, b| a.0.len().cmp(&b.0.len()));
-        token_list
-    }
-
-    #[inline(always)]
-    pub fn get_unique_token_ratio(&self) -> f64 {
+    pub fn unique_token_ratio(&self) -> f64 {
         if self.total_token_count == 0 {
             return 0.0;
         }
         self.token_count.len() as f64 / self.total_token_count as f64
     }
 
+    /// カウントをリセットします
     #[inline(always)]
-    pub fn reset(&mut self) {
+    pub fn clear(&mut self) {
         self.token_count.clear();
         self.total_token_count = 0;
     }
@@ -527,21 +415,6 @@ mod tests {
         tf.sub_token("rust");
         assert_eq!(tf.token_count.get("rust"), Some(&1));
         assert_eq!(tf.total_token_count, 2);
-    }
-
-    #[test]
-    fn test_tfidf_calc() {
-        let tfidf = TokenFrequency::tfidf_calc(2.0, 1.5);
-        assert_eq!(tfidf, 3.0);
-    }
-
-    #[test]
-    fn test_reset() {
-        let mut tf = TokenFrequency::new();
-        tf.add_tokens(&["rust", "programming"]);
-        tf.reset();
-        assert!(tf.token_count.is_empty());
-        assert_eq!(tf.total_token_count, 0);
     }
 
     #[test]
