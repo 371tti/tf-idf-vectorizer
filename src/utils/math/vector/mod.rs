@@ -3,8 +3,7 @@ pub mod math;
 use std::{alloc::{alloc, dealloc, realloc, Layout}, marker::PhantomData, mem, ptr::{self, NonNull}};
 use std::ops::Index;
 
-use num::{Num, Zero};
-
+use num::Num;
 /// ZeroSpVecは0要素を疎とした過疎ベクトルを実装です
 /// indices と valuesを持ち
 /// indicesは要素のインデックスを保持し、

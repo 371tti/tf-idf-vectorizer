@@ -1,5 +1,4 @@
 use num::Num;
-use rayon::result;
 
 use super::ZeroSpVec;
 
@@ -12,7 +11,6 @@ where
 
         let mut result = ZeroSpVec::with_capacity(self.nnz() + other.nnz());
         
-
         result
     }
 }
