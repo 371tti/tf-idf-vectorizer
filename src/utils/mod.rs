@@ -1,2 +1,2 @@
-pub mod scaler;
+pub mod normalizer;
 pub mod math;

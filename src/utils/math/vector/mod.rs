@@ -1,7 +1,9 @@
 pub mod math;
+pub mod math_normalized;
 
-use std::{alloc::{alloc, dealloc, realloc, Layout}, marker::PhantomData, mem, ptr::{self, NonNull}};
+use std::{alloc::{alloc, dealloc, realloc, Layout}, fmt, marker::PhantomData, mem, ptr::{self, NonNull}};
 use std::ops::Index;
+use std::fmt::Debug;
 
 use num::Num;
 /// ZeroSpVecは0要素を疎とした過疎ベクトルを実装です
@@ -22,6 +24,37 @@ where N: Num
 impl<N> ZeroSpVec<N> 
 where N: Num
 {
+    #[inline]
+    fn ind_ptr(&self) -> *mut usize {
+        self.buf.ind_ptr.as_ptr()
+    }
+
+    #[inline]
+    fn val_ptr(&self) -> *mut N {
+        self.buf.val_ptr.as_ptr()
+    }
+
+    /// raw_pushは、要素を追加するためのメソッドです。
+    /// ただし全体の長さを考慮しませんのであとでlenを更新する必要があります。
+    /// 
+    /// # Arguments
+    /// - `index` - 追加する要素のインデックス
+    /// - `value` - 追加する要素の値
+    #[inline]
+    fn raw_push(&mut self, index: usize, value: N) {
+        if self.nnz == self.buf.cap {
+            self.buf.grow();
+        }
+        unsafe {
+            let val_ptr = self.val_ptr().add(self.nnz);
+            let ind_ptr = self.ind_ptr().add(self.nnz);
+            ptr::write(val_ptr, value);
+            ptr::write(ind_ptr, index);
+        }
+        self.nnz += 1;
+    }
+
+    #[inline]
     fn ind_binary_search(&self, index: &usize) -> Result<usize, usize> {
         // 要素が無い場合は「まだどこにも挿入されていない」ので Err(0)
         if self.nnz == 0 {
@@ -32,7 +65,7 @@ where N: Num
         let mut right = self.nnz - 1;
         while left < right {
             let mid = left + (right - left) / 2;
-            let mid_index = unsafe { ptr::read(self.buf.ind_ptr.as_ptr().add(mid)) };
+            let mid_index = unsafe { ptr::read(self.ind_ptr().add(mid)) };
             if mid_index == *index {
                 return Ok(mid);
             } else if mid_index < *index {
@@ -43,7 +76,7 @@ where N: Num
         }
 
         // ループ終了後 left == right の位置になっている
-        let final_index = unsafe { ptr::read(self.buf.ind_ptr.as_ptr().add(left)) };
+        let final_index = unsafe { ptr::read(self.ind_ptr().add(left)) };
         if final_index == *index {
             Ok(left)
         } else if final_index < *index {
@@ -53,7 +86,7 @@ where N: Num
         }
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn new() -> Self {
         ZeroSpVec {
             buf: RawZeroSpVec::new(),
@@ -63,6 +96,7 @@ where N: Num
         }
     }
 
+    #[inline]
     pub fn with_capacity(cap: usize) -> Self {
         let mut buf = RawZeroSpVec::new();
         buf.cap = cap;
@@ -75,7 +109,7 @@ where N: Num
         }
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn reserve(&mut self, additional: usize) {
         let new_cap = self.nnz + additional;
         if new_cap > self.buf.cap {
@@ -84,6 +118,7 @@ where N: Num
         }
     }
 
+    #[inline]
     pub fn shrink_to_fit(&mut self) {
         if self.len < self.buf.cap {
             let new_cap = self.nnz;
@@ -92,36 +127,42 @@ where N: Num
         }
     }
 
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
 
+    #[inline]
     pub fn len(&self) -> usize {
         self.len
     }
 
+    #[inline]
     pub fn capacity(&self) -> usize {
         self.buf.cap
     }
 
+    #[inline]
     pub fn nnz(&self) -> usize {
         self.nnz
     }
 
+    #[inline]
     pub fn clear(&mut self) {
         while let Some(_) = self.pop() {
             // do nothing
         }
     }
 
+    #[inline]
     pub fn push(&mut self, elem: N) {
         if self.nnz == self.buf.cap {
             self.buf.grow();
         }
         if elem != N::zero() {
             unsafe {
-                let val_ptr = self.buf.val_ptr.as_ptr().add(self.nnz);
-                let ind_ptr = self.buf.ind_ptr.as_ptr().add(self.nnz);
+                let val_ptr = self.val_ptr().add(self.nnz);
+                let ind_ptr = self.ind_ptr().add(self.nnz);
                 ptr::write(val_ptr, elem);
                 ptr::write(ind_ptr, self.len);
             }
@@ -130,6 +171,7 @@ where N: Num
         self.len += 1;
     }
 
+    #[inline]
     pub fn pop(&mut self) -> Option<N> {
         if self.nnz == 0 {
             return None;
@@ -137,7 +179,7 @@ where N: Num
         let pop_element = if self.nnz == self.len {
             self.nnz -= 1;
             unsafe {
-                Some(ptr::read(self.buf.val_ptr.as_ptr().add(self.nnz)))
+                Some(ptr::read(self.val_ptr().add(self.nnz)))
             }
         } else {
             Some(N::zero())
@@ -146,6 +188,7 @@ where N: Num
         pop_element
     }
 
+    #[inline]
     pub fn get(&self, index: usize) -> Option<&N> {
         if index >= self.len {
             return None;
@@ -153,7 +196,7 @@ where N: Num
         match self.ind_binary_search(&index) {
             Ok(idx) => {
                 unsafe {
-                    Some(&*self.buf.val_ptr.as_ptr().add(idx))
+                    Some(&*self.val_ptr().add(idx))
                 }
             },
             Err(_) => {
@@ -161,6 +204,18 @@ where N: Num
             }
         }
     }
+
+    #[inline]
+    pub fn get_ind(&self, index: usize) -> Option<usize> {
+        if index >= self.nnz {
+            return None;
+        }
+        unsafe {
+            Some(ptr::read(self.ind_ptr().add(index)))
+        }
+    }
+
+
 
     /// removeメソッド
     /// 
@@ -173,9 +228,9 @@ where N: Num
     /// 
     /// # Returns
     /// - `N` - 削除した要素の値
-    #[inline(always)]
+    #[inline]
     pub fn remove(&mut self, index: usize) -> N {
-        assert!(index < self.len, "index out of bounds");
+        debug_assert!(index < self.len, "index out of bounds");
         
         // 論理的な要素数は常に1つ減る
         self.len -= 1;
@@ -184,7 +239,7 @@ where N: Num
             Ok(i) => {
                 // 今回削除する要素を読みだす
                 let removed_val = unsafe {
-                    ptr::read(self.buf.val_ptr.as_ptr().add(i))
+                    ptr::read(self.val_ptr().add(i))
                 };
 
                 // `i` 番目を削除するので、後ろを前にシフト
@@ -193,19 +248,19 @@ where N: Num
                     unsafe {
                         // 値をコピーして前につめる
                         ptr::copy(
-                            self.buf.val_ptr.as_ptr().add(i + 1),
-                            self.buf.val_ptr.as_ptr().add(i),
+                            self.val_ptr().add(i + 1),
+                            self.val_ptr().add(i),
                             count
                         );
                         // インデックスもコピーして前につめる
                         ptr::copy(
-                            self.buf.ind_ptr.as_ptr().add(i + 1),
-                            self.buf.ind_ptr.as_ptr().add(i),
+                            self.ind_ptr().add(i + 1),
+                            self.ind_ptr().add(i),
                             count
                         );
                         // シフトした後のインデックスは全て -1 (1つ前に詰める)
                         for offset in i..(self.nnz - 1) {
-                            *self.buf.ind_ptr.as_ptr().add(offset) -= 1;
+                            *self.ind_ptr().add(offset) -= 1;
                         }
                     }
                 }
@@ -222,7 +277,7 @@ where N: Num
                 if i < self.nnz {
                     unsafe {
                         for offset in i..self.nnz {
-                            *self.buf.ind_ptr.as_ptr().add(offset) -= 1;
+                            *self.ind_ptr().add(offset) -= 1;
                         }
                     }
                 }
@@ -230,6 +285,23 @@ where N: Num
                 // 0返す
                 N::zero()
             }
+        }
+    }
+
+    #[inline]
+    pub fn from_vec(vec: Vec<N>) -> Self {
+        let mut zero_sp_vec = ZeroSpVec::with_capacity(vec.len());
+        for entry in vec {
+            zero_sp_vec.push(entry);
+        }
+        zero_sp_vec
+    }
+
+    #[inline]
+    pub fn iter(&self) -> ZeroSpVecIter<N> {
+        ZeroSpVecIter {
+            vec: self,
+            pos: 0,
         }
     }
 }
@@ -240,6 +312,7 @@ unsafe impl <N: Num + Sync> Sync for ZeroSpVec<N> {}
 impl<N> Clone for ZeroSpVec<N> 
 where N: Num
 {
+    #[inline]
     fn clone(&self) -> Self {
         ZeroSpVec {
             buf: self.buf.clone(),
@@ -253,6 +326,7 @@ where N: Num
 impl<N> Drop for ZeroSpVec<N> 
 where N: Num
 {
+    #[inline]
     fn drop(&mut self) {
         // RawZeroSpVecで実装済み
     }
@@ -261,6 +335,7 @@ where N: Num
 impl<N> Default for ZeroSpVec<N> 
 where N: Num
 {
+    #[inline]
     fn default() -> Self {
         ZeroSpVec::new()
     }
@@ -271,13 +346,50 @@ where N: Num
 {
     type Output = N;
 
+    #[inline]
     fn index(&self, index: usize) -> &Self::Output {
         self.get(index).expect("index out of bounds")
     }
 }
 
+impl<N: Num + Debug> Debug for ZeroSpVec<N> {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if f.sign_plus() {
+            f.debug_struct("DefaultSparseVec")
+                .field("buf", &self.buf)
+                .field("nnz", &self.nnz)
+                .field("len", &self.len)
+                .field("zero", &self.zero)
+                .finish()
+        } else if f.alternate() {
+            write!(f, "ZeroSpVec({:?})", self.iter().collect::<Vec<&N>>())
+        } else {
+            f.debug_list().entries((0..self.len).map(|i| self.get(i).unwrap())).finish()
+        }
+    }
+}
 
+pub struct ZeroSpVecIter<'a, N> 
+where N: Num
+{
+    vec: &'a ZeroSpVec<N>,
+    pos: usize,
+}
 
+impl<'a, N> Iterator for ZeroSpVecIter<'a, N> 
+where N: Num
+{
+    type Item = &'a N;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.vec.get(self.pos).map(|val| {
+            self.pos += 1;
+            val
+        })
+    }
+}
 
 
 
@@ -290,6 +402,7 @@ where N: Num
 
 
 /// ZeroSpVecの生実装
+#[derive(Debug)]
 struct RawZeroSpVec<N> 
 where N: Num 
 {
@@ -306,7 +419,7 @@ where N: Num
 impl<N> RawZeroSpVec<N> 
 where N: Num
 {
-    #[inline(always)]
+    #[inline]
     fn new() -> Self {
         // zero size struct (ZST)をusize::MAXと定義 ある種のフラグとして使用
         let cap = if mem::size_of::<N>() == 0 { std::usize::MAX } else { 0 }; 
@@ -321,7 +434,7 @@ where N: Num
         }
     }
 
-    #[inline(always)]
+    #[inline]
     fn grow(&mut self) {
         unsafe {
             let val_elem_size = mem::size_of::<N>();
@@ -329,7 +442,7 @@ where N: Num
 
             // 安全性: ZSTの場合growはcapを超えた場合にしか呼ばれない
             // これは必然的にオーバーフローしていることをしめしている
-            assert!(val_elem_size != 0, "capacity overflow");
+            debug_assert!(val_elem_size != 0, "capacity overflow");
 
             // アライメントの取得 適切なメモリ確保を行うため
             let t_align = mem::align_of::<N>();
@@ -369,7 +482,7 @@ where N: Num
         }
     }
     
-    #[inline(always)]
+    #[inline]
     fn cap_set(&mut self) {
         unsafe {
             let val_elem_size = mem::size_of::<N>();
@@ -390,7 +503,7 @@ where N: Num
         }
     }
 
-    #[inline(always)]
+    #[inline]
     fn re_cap_set(&mut self) {
         unsafe {
             let val_elem_size = mem::size_of::<N>();
@@ -415,6 +528,7 @@ where N: Num
 impl<N> Clone for RawZeroSpVec<N> 
 where N: Num
 {
+    #[inline]
     fn clone(&self) -> Self {
         unsafe {
             let val_elem_size = mem::size_of::<N>();
@@ -449,6 +563,7 @@ unsafe impl<N: Num + Sync> Sync for RawZeroSpVec<N> {}
 impl<N> Drop for RawZeroSpVec<N> 
 where N: Num
 {
+    #[inline]
     fn drop(&mut self) {
         unsafe {
             let val_elem_size = mem::size_of::<N>();
@@ -471,6 +586,7 @@ where N: Num
 /// OOMの場合panic!を発生させるとTraceBackによるメモリ仕様が起きてしまうため
 /// 仕方なく強制終了させる
 /// 本来OOMはOSにより管理され発生前にKillされるはずなのであんまり意味はない。
+#[cold]
 fn oom() {
     ::std::process::exit(-9999);
 }

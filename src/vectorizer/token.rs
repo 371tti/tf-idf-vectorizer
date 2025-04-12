@@ -4,7 +4,7 @@ use std::{collections::{HashMap, HashSet}, fmt::Debug};
 use num::Num;
 use serde::{Deserialize, Serialize};
 
-use crate::utils::scaler::Normalizer;
+use crate::utils::normalizer::IntoNormalizer;
 
 ///  TokenFrequency 構造体
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -125,7 +125,7 @@ impl TokenFrequency
     /// * `Vec<(String, N)>` - トークンとそのTFのベクタ
     #[inline]
     pub fn tf_vector<N>(&self) -> Vec<(String, N)> 
-    where f64: Normalizer<N>, N: Num {
+    where f64: IntoNormalizer<N>, N: Num {
         let max_count = self.most_frequent_token_count();
         self.token_count
             .iter()
@@ -142,7 +142,7 @@ impl TokenFrequency
     /// * `Vec<(&str, N)>` - トークンとそのTFのベクタ
     #[inline]
     pub fn tf_vector_ref_str<N>(&self) -> Vec<(&str, N)>
-    where f64: Normalizer<N>, N: Num {
+    where f64: IntoNormalizer<N>, N: Num {
         let max_count = self.most_frequent_token_count();
         self.token_count
             .iter()
@@ -158,7 +158,7 @@ impl TokenFrequency
     /// * `HashMap<String, N>` - トークンとそのTFのハッシュマップ
     #[inline]
     pub fn tf_hashmap<N>(&self) -> HashMap<String, N> 
-    where f64: Normalizer<N>, N: Num {
+    where f64: IntoNormalizer<N>, N: Num {
         let max_count = self.most_frequent_token_count();
         self.token_count
             .iter()
@@ -175,7 +175,7 @@ impl TokenFrequency
     /// * `HashMap<&str, N>` - トークンとそのTFのハッシュマップ
     #[inline]
     pub fn tf_hashmap_ref_str<N>(&self) -> HashMap<&str, N> 
-    where f64: Normalizer<N>, N: Num {
+    where f64: IntoNormalizer<N>, N: Num {
         let max_count = self.most_frequent_token_count();
         self.token_count
             .iter()
@@ -194,7 +194,7 @@ impl TokenFrequency
     /// * `N` - トークンのTF
     #[inline]
     pub fn tf_token<N>(&self, token: &str) -> N 
-    where f64: Normalizer<N>, N: Num{
+    where f64: IntoNormalizer<N>, N: Num{
         let max_count = self.most_frequent_token_count();
         let count = self.token_count.get(token).copied().unwrap_or(0);
         Self::tf_calc(max_count, count).into_normalized()
@@ -233,7 +233,7 @@ impl TokenFrequency {
     /// * `Vec<(String, N)>` - トークンとそのIDFのベクタ
     #[inline]
     pub fn idf_vector<N>(&self, total_doc_count: u64) -> Vec<(String, N)> 
-    where f64: Normalizer<N>, N: Num {
+    where f64: IntoNormalizer<N>, N: Num {
         self.token_count
             .iter()
             .map(|(token, &doc_count)| {
@@ -253,7 +253,7 @@ impl TokenFrequency {
     /// * `Vec<(&str, N)>` - トークンとそのIDFのベクタ
     #[inline]
     pub fn idf_vector_ref_str<N>(&self, total_doc_count: u64) -> Vec<(&str, N)> 
-    where f64: Normalizer<N>, N: Num {
+    where f64: IntoNormalizer<N>, N: Num {
         self.token_count.iter().map(|(token, &doc_count)| {
             let idf = Self::idf_calc(total_doc_count, self.idf_max(total_doc_count), doc_count);
             (token.as_str(), idf.into_normalized())
@@ -270,7 +270,7 @@ impl TokenFrequency {
     /// * `HashMap<String, N>` - トークンとそのIDFのハッシュマップ
     #[inline]
     pub fn idf_hashmap<N>(&self, total_doc_count: u64) -> HashMap<String, N> 
-    where f64: Normalizer<N>, N: Num {
+    where f64: IntoNormalizer<N>, N: Num {
         self.token_count
             .iter()
             .map(|(token, &doc_count)| {
@@ -290,7 +290,7 @@ impl TokenFrequency {
     /// * `HashMap<&str, N>` - トークンとそのIDFのハッシュマップ
     #[inline]
     pub fn idf_hashmap_ref_str<N>(&self, total_doc_count: u64) -> HashMap<&str, N> 
-    where f64: Normalizer<N>, N: Num {
+    where f64: IntoNormalizer<N>, N: Num {
         self.token_count.iter().map(|(token, &doc_count)| {
             let idf = Self::idf_calc(total_doc_count, self.idf_max(total_doc_count), doc_count);
             (token.as_str(), idf.into_normalized())
