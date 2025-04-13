@@ -47,8 +47,8 @@ where
                 let self_ind = ptr::read(self_ind_ptr.add(i));
                 let other_ind = ptr::read(other_ind_ptr.add(j));
                 if self_ind == other_ind {
-                    let value = ptr::read(self_val_ptr.add(i)) * ptr::read(other_val_ptr.add(j));
-                    result += value.into();
+                    let value = ptr::read(self_val_ptr.add(i)).into() * ptr::read(other_val_ptr.add(j)).into();
+                    result += value;
                     i += 1;
                     j += 1;
                 } else if self_ind < other_ind {

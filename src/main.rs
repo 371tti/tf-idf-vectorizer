@@ -7,6 +7,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use rayon::iter::{ParallelBridge, ParallelIterator};
+use rayon::ThreadPoolBuilder;
+use tf_idf_vectorizer::vectorizer::index::Index;
 
 
 const MAX_SUDACHI_INPUT_SIZE: usize = 49100;
@@ -123,63 +125,108 @@ fn filter_tokens(tokens: Vec<String>, blacklist: &HashSet<String>) -> Vec<String
 
 // メイン処理
 fn main() {
-    let dir_path = "Z:\\D\\dev\\web_dev\\idis_v2\\wikipedia_all_articles_fast";
-    let blacklist = blacklist();
-
-    // 2つのインデックス用の `DocumentAnalyzer` を作成
-    let index = Arc::new(Mutex::new(Index::<f32>::new()));
-    // let analyzer2 = Arc::new(Mutex::new(DocumentAnalyzer::<String>::new()));
-    let file_counter = Arc::new(AtomicUsize::new(0));
-    
-    // ファイルを逐次処理しつつ並列化
-    fs::read_dir(dir_path)
-        .expect("Failed to read directory")
-        .par_bridge() // Rayonによる並列化
-        .try_for_each(|entry| -> Result<(), ()> {
-            let entry = entry.expect("Failed to read entry");
-            let path = entry.path();
-
-            let file_count = file_counter.load(Ordering::Relaxed);
-
-            if file_count >= 100_000 {
-                return Err(()); // すでに指定件数を超えている場合は処理をスキップ
+    let mut search_mode = true; // 検索モードを有効にする
+    let index: Index<u16> = if fs::metadata("index.cbor").is_ok() {
+        println!("index.cbor が見つかりました。以下のオプションから選択してください:");
+        println!("1: 新しい index を作成する");
+        println!("2: 既存の index に追加する");
+        println!("3: 既存の index で検索のみ行う");
+        let mut choice = String::new();
+        io::stdin()
+            .read_line(&mut choice)
+            .expect("入力の読み込みに失敗しました");
+        match choice.trim() {
+            "1" => {
+                println!("新しい index を作成します");
+                search_mode = false; // ドキュメント追加モードに切り替え
+                Index::new()
             }
+            "2" | "3" => {
+                let serialized = fs::read("index.cbor").expect("index.cbor の読み込みに失敗しました");
+                let idx: Index<u16> =
+                    serde_cbor::from_slice(&serialized).expect("index の復元に失敗しました");
+                if choice.trim() == "2" {
+                    println!("既存の index を読み込み、ドキュメントを追加します");
+                    search_mode = false; // ドキュメント追加モードに切り替え
+                } else {
+                    println!("既存の index を読み込み、検索モードで実行します");
+                }
+                idx
+            }
+            _ => {
+                println!("無効な選択です。新しい index を作成します");
+                Index::new()
+            }
+        }
+    } else {
+        search_mode = false; // ドキュメント追加モードに切り替え
+        Index::new()
+    };
 
-            if path.is_file() {
-                let file_name = path.file_name().unwrap().to_string_lossy().to_string();
-                let file = File::open(&path).expect("Failed to open file");
-                let mut buf_reader = BufReader::new(file);
-                let mut content = String::new();
+    let index = Arc::new(Mutex::new(index));
+    if !search_mode {
 
-                buf_reader
-                    .read_to_string(&mut content)
-                    .expect("Failed to read file");
+        let dir_path = "Z:\\D\\dev\\web_dev\\idis_v2\\wikipedia_all_articles_fast";
+        let blacklist = blacklist();
 
-                println!("Processing file: {} {}", file_count, file_name);
-                let mut tokens = tokenize_with_sudachi(&content, "B");
-                tokens = filter_tokens(tokens, &blacklist);
+        // 2つのインデックス用の `DocumentAnalyzer` を作成
+        // let analyzer2 = Arc::new(Mutex::new(DocumentAnalyzer::<String>::new()));
+        let file_counter = Arc::new(AtomicUsize::new(0));
+        let pool = ThreadPoolBuilder::new().num_threads(10).build().unwrap();
+        pool.install(|| {
+            // ファイルを逐次処理しつつ並列化
+            fs::read_dir(dir_path)
+                .expect("Failed to read directory")
+                .par_bridge() // Rayonによる並列化
+                .try_for_each(|entry| -> Result<(), ()> {
+                    let entry = entry.expect("Failed to read entry");
+                    let path = entry.path();
 
-                let token_refs: Vec<&str> = tokens.iter().map(AsRef::as_ref).collect();
-                
+                    let file_count = file_counter.load(Ordering::Relaxed);
 
-                    // インデックスに追加
-                    {
-                        let mut idx = index.lock().expect("Failed to lock index");
-                        idx.add_doc(format!("index1_{}", file_name), &token_refs);
+                    if file_count >= 100_000 { // すでに指定件数を超えている場合は処理をスキップ
+                        return Err(()); 
                     }
 
-                // ファイルカウンターを増加
-                file_counter.fetch_add(1, Ordering::Relaxed);
-            }
+                    if path.is_file() {
+                        let file_name = path.file_name().unwrap().to_string_lossy().to_string();
+                        let file = File::open(&path).expect("Failed to open file");
+                        let mut buf_reader = BufReader::new(file);
+                        let mut content = String::new();
 
-            Ok(())
-        }).ok(); // エラーを無視して終了
+                        buf_reader
+                            .read_to_string(&mut content)
+                            .expect("Failed to read file");
 
+                        println!("Processing file: {} {}", file_count, file_name);
+                        let mut tokens = tokenize_with_sudachi(&content, "B");
+                        tokens = filter_tokens(tokens, &blacklist);
+
+                        let token_refs: Vec<&str> = tokens.iter().map(AsRef::as_ref).collect();
+
+                        // インデックスに追加
+                        {
+                            let mut idx = index.lock().expect("Failed to lock index");
+                            idx.add_doc(format!("index1_{}", file_name), &token_refs);
+                        }
+
+                        // ファイルカウンターを増加
+                        file_counter.fetch_add(1, Ordering::Relaxed);
+                    }
+
+                    Ok(())
+                })
+                .ok(); // エラーを無視して終了
+        });
+    }
 
     loop {
         println!("Enter your search query:");
         let mut query = String::new();
         io::stdin().read_line(&mut query).expect("Failed to read line");
+        if query.trim() == "exit" {
+            break; // "exit"と入力されたらループを終了
+        }
 
         let query_tokens = tokenize_with_sudachi(&query, "B");
         let query_token_refs: Vec<&str> = query_tokens.iter().map(|s| s.as_str()).collect();
@@ -191,7 +238,7 @@ fn main() {
         let start = Instant::now();
         let result0 = {
             let idx = index.lock().expect("Failed to lock index");
-            idx.search_cosine_similarity(&query)
+            idx.search_cosine_similarity_parallel(&query, 16)
         };
         let duration = start.elapsed();
         let top_n = 10;
@@ -200,12 +247,14 @@ fn main() {
             println!("Document ID: {}, Similarity: {:.4}", doc_id, similarity);
         }
         println!("Search results (Time taken: {:.2?}):", duration);
-
+    }
+    {
+        let idx = index.lock().expect("Failed to lock index");
+        let serialized = serde_cbor::to_vec(&*idx).expect("Failed to serialize index");
+        std::fs::write("index.cbor", serialized).expect("Failed to write index to file");
+        println!("Serialized index has been saved as index.cbor");
     }
 }
-
-use tf_idf_vectorizer::{utils::math::vector::ZeroSpVec, vectorizer::index::Index};
-use rand::{seq::index::sample, Rng};
 
 // fn main() {
 //     // ここにメイン処理を記述

@@ -11,8 +11,8 @@ use crate::utils::normalizer::IntoNormalizer;
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TokenFrequency {
     #[serde(with = "indexmap::map::serde_seq")]
-    pub token_count: IndexMap<String, u32>,
-    pub total_token_count: u64,
+    token_count: IndexMap<String, u32>,
+    total_token_count: u64,
 }
 
 /// Tokenの追加、削除の実装

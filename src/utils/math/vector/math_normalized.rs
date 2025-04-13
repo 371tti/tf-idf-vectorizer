@@ -64,7 +64,7 @@ where
                 }
             }
             // 正規化された値を計算
-             result = (result_sum / self.len() as f64 / N::max_normalized().into()).into_normalized();
+            result = (result_sum / self.len() as f64 / N::max_normalized().into()).into_normalized();
         }
         result
     }
@@ -74,7 +74,12 @@ where
         let dot_product: f64 = self.dot(other);
         let self_norm: f64 = self.dot(self).sqrt();
         let other_norm: f64 = other.dot(other).sqrt();
-        (dot_product / (self_norm * other_norm)).into_normalized()
+
+        if self_norm == 0.0 || other_norm == 0.0 {
+            return R::zero();
+        }
+        let cosine_similarity = dot_product / (self_norm * other_norm);
+        cosine_similarity.into_normalized()
     }
 
     /// 正規化されたアダマール積を計算するメソッド

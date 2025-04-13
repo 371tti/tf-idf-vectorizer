@@ -9,8 +9,7 @@ keywords = ["search", "tf", "idf", "analyze"]
 
 [dependencies]
 serde = { version = "1.0.219", features = ["derive"] }
+serde_cbor = "0.11.2"
 num = "0.4.3"
 indexmap = { version = "2.9.0", features = ["serde"] }
-
-rand = "0.9.0"
 rayon = "1.10.0"

@@ -4,6 +4,7 @@ use num::Num;
 use serde::{Deserialize, Serialize};
 
 use crate::utils::{math::vector::ZeroSpVec, normalizer::{IntoNormalizer, NormalizedBounded, NormalizedMultiply}};
+use rayon::prelude::*;
 
 use super::token::TokenFrequency;
 
@@ -12,9 +13,9 @@ use super::token::TokenFrequency;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Index<N>
 where N: Num + Into<f64> + AddAssign + MulAssign + NormalizedMultiply + Copy + NormalizedBounded {
-    pub matrix: Vec<ZeroSpVec<N>>,
-    pub doc_id: Vec<String>,
-    pub corpus_token_freq: TokenFrequency,
+    matrix: Vec<ZeroSpVec<N>>,
+    doc_id: Vec<String>,
+    corpus_token_freq: TokenFrequency,
 }
 
 impl<N> Index<N>
@@ -107,9 +108,50 @@ where N: Num + Into<f64> + AddAssign + MulAssign + NormalizedMultiply + Copy + N
 
         // ドキュメントベクトルとIDFを掛け算してコサイン類似度を計算
         for (i, doc_vec) in self.matrix.iter().enumerate() {
-            let similarity = doc_vec.cosine_similarity_normalized(&idf_query);
-            result.push((self.doc_id[i].clone(), similarity.into()));
+            let similarity = doc_vec.cosine_similarity_normalized::<f64>(&idf_query);
+            if similarity != 0.0 {
+                result.push((self.doc_id[i].clone(), similarity));
+            }
         }
+
+        // 類似度でソート
+        result.sort_by(|a, b| b.1.total_cmp(&a.1));
+        result
+    }
+
+    pub fn search_cosine_similarity_parallel(&self, query: &ZeroSpVec<N>, thread_count: usize) -> Vec<(String, f64)>
+    where
+        N: Send + Sync,
+    {
+        // IDFとqueryを先に乗算
+        let idf_query: ZeroSpVec<N> = query.hadamard_normalized_vec(
+            &self
+                .corpus_token_freq
+                .idf_vector_ref_str::<N>(self.matrix.len() as u64)
+                .into_iter()
+                .map(|(_, idf)| idf)
+                .collect::<Vec<N>>(),
+        );
+
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(thread_count)
+            .build()
+            .expect("Failed to build thread pool");
+
+        let mut result: Vec<(String, f64)> = pool.install(|| {
+            self.matrix
+                .par_iter()
+                .enumerate()
+                .filter_map(|(i, doc_vec)| {
+                    let similarity = doc_vec.cosine_similarity_normalized::<f64>(&idf_query);
+                    if similarity != 0.0 {
+                        Some((self.doc_id[i].clone(), similarity))
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        });
 
         // 類似度でソート
         result.sort_by(|a, b| b.1.total_cmp(&a.1));
