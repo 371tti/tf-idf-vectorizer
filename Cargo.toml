@@ -9,9 +9,8 @@ keywords = ["search", "tf", "idf", "analyze"]
 
 [dependencies]
 serde = { version = "1.0.219", features = ["derive"] }
-rayon = "1.5"
-fst = "0.4.7"
-vec-plus = "0.1.0"
 num = "0.4.3"
+indexmap = { version = "2.9.0", features = ["serde"] }
 
 rand = "0.9.0"
+rayon = "1.10.0"

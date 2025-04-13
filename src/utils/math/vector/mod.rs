@@ -1,5 +1,6 @@
 pub mod math;
 pub mod math_normalized;
+pub mod serde;
 
 use std::{alloc::{alloc, dealloc, realloc, Layout}, fmt, marker::PhantomData, mem, ptr::{self, NonNull}};
 use std::ops::Index;
@@ -145,6 +146,11 @@ where N: Num
     #[inline]
     pub fn nnz(&self) -> usize {
         self.nnz
+    }
+
+    #[inline]
+    pub fn add_dim(&mut self, dim: usize) {
+        self.len += dim;
     }
 
     #[inline]
@@ -304,6 +310,14 @@ where N: Num
             pos: 0,
         }
     }
+
+    #[inline]
+    pub fn raw_iter(&self) -> ZeroSpVecRawIter<N> {
+        ZeroSpVecRawIter {
+            vec: self,
+            pos: 0,
+        }
+    }
 }
 
 unsafe impl <N: Num + Send> Send for ZeroSpVec<N> {}
@@ -389,6 +403,32 @@ where N: Num
             val
         })
     }
+}
+
+pub struct ZeroSpVecRawIter<'a, N> 
+where N: Num
+{
+    vec: &'a ZeroSpVec<N>,
+    pos: usize,
+}
+
+impl<'a, N> Iterator for ZeroSpVecRawIter<'a, N> 
+where N: Num
+{
+    type Item = (usize, &'a N);
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.pos < self.vec.nnz() {
+            let index = unsafe { *self.vec.ind_ptr().add(self.pos) };
+            let value = unsafe { &*self.vec.val_ptr().add(self.pos) };
+            self.pos += 1;
+            Some((index, value))
+        } else {
+            None
+        }
+    }
+    
 }
 
 

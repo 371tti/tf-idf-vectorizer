@@ -1,6 +1,7 @@
 use core::str;
 use std::{collections::{HashMap, HashSet}, fmt::Debug};
 
+use indexmap::IndexMap;
 use num::Num;
 use serde::{Deserialize, Serialize};
 
@@ -9,7 +10,8 @@ use crate::utils::normalizer::IntoNormalizer;
 ///  TokenFrequency 構造体
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TokenFrequency {
-    pub token_count: HashMap<String, u32>,
+    #[serde(with = "indexmap::map::serde_seq")]
+    pub token_count: IndexMap<String, u32>,
     pub total_token_count: u64,
 }
 
@@ -17,7 +19,7 @@ pub struct TokenFrequency {
 impl TokenFrequency {
     pub fn new() -> Self {
         TokenFrequency {
-            token_count: HashMap::new(),
+            token_count: IndexMap::new(),
             total_token_count: 0,
         }
     }
@@ -49,44 +51,46 @@ impl TokenFrequency {
         self
     }
 
-    /// tokenを引く
-    /// 
-    /// # Arguments
-    /// * `token` - 引くトークン
-    #[inline]
-    pub fn sub_token(&mut self, token: &str) -> &mut Self {
-        if let Some(count) = self.token_count.get_mut(token) {
-            if *count > 1 {
-                *count -= 1;
-                self.total_token_count -= 1;
-            } else if *count == 1 {
-                self.token_count.remove(token);
-                self.total_token_count -= 1;
-            }
-        }
-        self
-    }
+    // /// tokenを引く
+    // /// 
+    // /// # Arguments
+    // /// * `token` - 引くトークン
+    // #[inline]
+    // pub fn sub_token(&mut self, token: &str) -> &mut Self {
+    //     if let Some(count) = self.token_count.get_mut(token) {
+    //         if *count > 1 {
+    //             *count -= 1;
+    //             self.total_token_count -= 1;
+    //         } else if *count == 1 {
+    //             self.token_count.remove(token);
+    //             self.total_token_count -= 1;
+    //         }
+    //     }
+    //     self
+    // }
 
-    /// 複数のtokenを引く
-    /// 
-    /// # Arguments
-    /// * `tokens` - 引くトークンのスライス
-    #[inline]
-    pub fn sub_tokens<T>(&mut self, tokens: &[T]) -> &mut Self 
-    where T: AsRef<str>
-    {
-        for token in tokens {
-            let token_str = token.as_ref();
-            self.sub_token(token_str);
-        }
-        self
-    }
+    // /// 複数のtokenを引く
+    // /// 
+    // /// # Arguments
+    // /// * `tokens` - 引くトークンのスライス
+    // #[inline]
+    // pub fn sub_tokens<T>(&mut self, tokens: &[T]) -> &mut Self 
+    // where T: AsRef<str>
+    // {
+    //     for token in tokens {
+    //         let token_str = token.as_ref();
+    //         self.sub_token(token_str);
+    //     }
+    //     self
+    // }
 
     /// tokenの出現回数を指定する
     /// 
     /// # Arguments
     /// * `token` - トークン
     /// * `count` - 出現回数
+    #[deprecated(note = "countに0を指定した場合、token_numはそれを1つのユニークなtokenとしてカウントします。
+    このメソッドは、token_numのカウントを不正にする可能性があるため、非推奨です")]
     pub fn set_token_count(&mut self, token: &str, count: u32) -> &mut Self {
         if let Some(existing_count) = self.token_count.get_mut(token) {
             if count >= *existing_count {
@@ -116,6 +120,9 @@ impl TokenFrequency
     /// * `f64` - TFの値 (0.0~1.0)
     #[inline]
     pub fn tf_calc(max_count: u32, count: u32) -> f64 {
+        if count == 0 {
+            return 0.0;
+        }
         (count as f64 + 1.0).ln() / (max_count as f64 + 1.0).ln()
     }
 
@@ -324,15 +331,6 @@ impl TokenFrequency {
     }
 
     /// すべてのtokenの出現回数を取得します
-    /// 
-    /// # Returns
-    /// * `HashMap<String, u32>` - トークンとその出現回数のハッシュマップ
-    #[inline]
-    pub fn token_count_hashmap(&self) -> HashMap<String, u32> {
-        self.token_count.clone()
-    }
-
-    /// すべてのtokenの出現回数を取得します
     /// 文字列はこれの参照を返します
     /// 
     /// # Returns
@@ -454,24 +452,24 @@ impl TokenFrequency {
         self.token_count.len()
     }
 
-    /// stop_tokenを削除します
-    /// 
-    /// # Arguments
-    /// * `stop_tokens` - 削除するトークンのスライス
-    /// 
-    /// # Returns
-    /// * `u64` - 削除されたtokenの合計数
-    #[inline]
-    pub fn remove_stop_tokens(&mut self, stop_tokens: &[&str]) -> u64{
-        let mut removed_total_count: u64 = 0;
-        for &stop_token in stop_tokens {
-            if let Some(count) = self.token_count.remove(stop_token) {
-                removed_total_count += count as u64;
-            }
-        }
-        self.total_token_count -= removed_total_count;
-        removed_total_count
-    }
+    // /// stop_tokenを削除します
+    // /// 
+    // /// # Arguments
+    // /// * `stop_tokens` - 削除するトークンのスライス
+    // /// 
+    // /// # Returns
+    // /// * `u64` - 削除されたtokenの合計数
+    // #[inline]
+    // pub fn remove_stop_tokens(&mut self, stop_tokens: &[&str]) -> u64{
+    //     let mut removed_total_count: u64 = 0;
+    //     for &stop_token in stop_tokens {
+    //         if let Some(count) = self.token_count.remove(stop_token) {
+    //             removed_total_count += count as u64;
+    //         }
+    //     }
+    //     self.total_token_count -= removed_total_count;
+    //     removed_total_count
+    // }
 
     /// 条件に基づいてtokenを削除します
     /// 
