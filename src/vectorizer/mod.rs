@@ -1,4 +1,5 @@
 
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use token::TokenFrequency;
 
 pub mod index;
@@ -48,6 +49,31 @@ impl TFIDFVectorizer {
                 result.push((*added_token, tf_idf));
             }
         }
+        result.sort_by(|a, b| b.1.total_cmp(&a.1));
+        result
+    }
+    pub fn tf_idf_vector_parallel(&self, tokens: &[&str], thread_count: usize) -> Vec<(&str, f64)> {
+        // TFの計算
+        let mut doc_tf = TokenFrequency::new();
+        doc_tf.add_tokens(tokens);
+
+        let idf_vec: Vec<(&str, f64)> = self.corpus.idf_vector_ref_str(self.doc_num as u64);
+
+        // カスタムスレッドプールを作成し、スレッド数を指定
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(thread_count).build().unwrap();
+        let mut result: Vec<(&str, f64)> = pool.install(|| {
+            idf_vec
+                .par_iter()
+                .filter_map(|(added_token, idf)| {
+                    let tf: f64 = doc_tf.tf_token(added_token);
+                    if tf != 0.0 {
+                        Some((*added_token, tf * idf))
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        });
         result.sort_by(|a, b| b.1.total_cmp(&a.1));
         result
     }
