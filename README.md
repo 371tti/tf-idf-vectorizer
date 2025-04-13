@@ -1,4 +1,4 @@
-# tf-idf ベクトライザー
+# tf-idf-Vectorizer
 
 ## はじめに
 このライブラリは、Rustで実装されたTF-IDFベクトライザーです。  
@@ -37,7 +37,7 @@ TF-IDF (Term Frequency-Inverse Document Frequency) は、文書中の各単語�
 Cargo.tomlに以下の依存関係を追加してください:
 ```toml
 [dependencies]
-tf-idf-vectorizer = "0.0.1"
+tf-idf-vectorizer = "0.1.0"
 ```
 
 ## 使い方
