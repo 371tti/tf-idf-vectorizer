@@ -7,6 +7,8 @@ use crate::utils::{math::vector::ZeroSpVec, normalizer::{IntoNormalizer, Normali
 
 use super::token::TokenFrequency;
 
+/// インデックス
+/// ドキュメント単位でインデックスを作成、検索するための構造体です
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Index<N>
 where N: Num + Into<f64> + AddAssign + MulAssign + NormalizedMultiply + Copy + NormalizedBounded {
@@ -23,6 +25,17 @@ where N: Num + Into<f64> + AddAssign + MulAssign + NormalizedMultiply + Copy + N
             doc_id: Vec::new(),
             corpus_token_freq: TokenFrequency::new(),
         }
+    }
+
+    /// インデックスのドキュメント数を取得するメソッド
+    pub fn doc_num(&self) -> usize {
+        self.matrix.len()
+    }
+
+    /// インデックスのトークン数を取得するメソッド
+    /// トークン数はユニークなトークンの数を返す
+    pub fn token_num(&self) -> usize {
+        self.corpus_token_freq.token_num()
     }
 
     /// インデックスにドキュメントを追加するメソッド
@@ -50,7 +63,7 @@ where N: Num + Into<f64> + AddAssign + MulAssign + NormalizedMultiply + Copy + N
                 other_tf.add_dim(added_corpus_token_num);
             }
         }
-
+        vec.shrink_to_fit();
         // matrixに追加
         self.matrix.push(vec);
     }

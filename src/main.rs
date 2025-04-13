@@ -141,7 +141,7 @@ fn main() {
 
             let file_count = file_counter.load(Ordering::Relaxed);
 
-            if file_count >= 1_000 {
+            if file_count >= 100_000 {
                 return Err(()); // すでに指定件数を超えている場合は処理をスキップ
             }
 
@@ -194,10 +194,10 @@ fn main() {
             idx.search_cosine_similarity(&query)
         };
         let duration = start.elapsed();
-
-        println!("Search results (Time taken: {:.2?}):", duration);
-        for (doc_id, similarity) in result0 {
-            println!("1Document ID: {}, Similarity: {:.4}", doc_id, similarity);
+        let top_n = 10;
+        println!("Search results (Top {} results, Time taken: {:.2?}):", top_n, duration);
+        for (doc_id, similarity) in result0.into_iter().take(top_n) {
+            println!("Document ID: {}, Similarity: {:.4}", doc_id, similarity);
         }
         println!("Search results (Time taken: {:.2?}):", duration);
 
