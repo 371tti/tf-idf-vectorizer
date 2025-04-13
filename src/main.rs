@@ -115,6 +115,7 @@ fn tokenize_with_sudachi(text: &str, mode: &str) -> Vec<String> {
 
     tokens
 }
+
 // トークンのフィルタリング
 fn filter_tokens(tokens: Vec<String>, blacklist: &HashSet<String>) -> Vec<String> {
     tokens
