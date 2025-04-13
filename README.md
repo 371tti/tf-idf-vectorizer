@@ -1,12 +1,9 @@
 # tf-idf-Vectorizer
 
-## はじめに
 このライブラリは、Rustで実装されたTF-IDFベクトライザーです。  
 TF-IDF (Term Frequency-Inverse Document Frequency) は、文書中の各単語の重要度を評価するための有力な手法で、情報検索やテキストマイニング、自然言語処理の分野で広く利用されています。  
 本ライブラリは、高速な並列処理と効率的なアルゴリズムにより、大規模なコーパスに対しても実用的なパフォーマンスを提供します。
-
-## 背景と目的
-単語の出現頻度だけでは情報の重要性は把握できません。  
+  
 - **TF (Term Frequency)**: 各ドキュメント内で単語がどれだけ登場するか  
 - **IDF (Inverse Document Frequency)**: コーパス全体における単語の希少性を評価  
 これらを組み合わせることにより、他の単語に比べてその単語がどれだけ特徴的かを示すことができます。  
@@ -82,10 +79,42 @@ fn main() {
     }
 }
 ```
+### TFIDFVectorizer の利用例
+
+以下のコード例は、TFIDFVectorizer の基本的な利用方法を示しています。  
+各文書からコーパスを構築し、特定の単語リストに対して TF-IDF ベクトルを算出する手順を確認できます。
+
+```rust
+use tf_idf_vectorizer::vectorizer::tfidf::TFIDFVectorizer;
+
+fn main() {
+    // TFIDFVectorizer の新規作成
+    let mut vectorizer = TFIDFVectorizer::new();
+    
+    // サンプルのコーパス（各文書は単語のスライス）
+    let documents = vec![
+        vec!["rust", "高速", "パフォーマンス", "並列処理"],
+        vec!["tf-idf", "ベクトライザー", "テキストマイニング"],
+        vec!["rust", "tf-idf", "アルゴリズム", "効率的"],
+    ];
+    
+    // 各文書からトークンを追加してコーパスを構築
+    for doc in &documents {
+        vectorizer.add_corpus(doc);
+    }
+    
+    // 特定の単語リストに対してTF-IDFベクトルを算出
+    let tokens = vec!["rust", "tf-idf", "並列処理"];
+    let tfidf_vector = vectorizer.tf_idf_vector(&tokens);
+    
+    println!("TF-IDF Vector: {:?}", tfidf_vector);
+}
+```
+###
 
 ## API リファレンス
 
-### TF-IDF ベクトライザー (`TFIDFVectorizer`)
+### TFIDFVectorizer
 - `TFIDFVectorizer::new()`  
   新規のベクトライザーを生成します。
   
