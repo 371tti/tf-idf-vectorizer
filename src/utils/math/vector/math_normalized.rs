@@ -140,7 +140,7 @@ where
     /// * `ZeroSpVec<N>` - アダマール積の結果
     #[inline]
     pub fn hadamard_normalized_vec(&self, other: &Vec<N>) -> Self {
-        assert_eq!(
+        debug_assert_eq!(
             self.len(),
             other.len(),
             "Vectors must be of the same length to compute hadamard product."
@@ -161,6 +161,10 @@ where
             while i < self.nnz() {
                 let self_ind = ptr::read(self.ind_ptr().add(i));
                 let self_val = ptr::read(self.val_ptr().add(i));
+                if self_ind >= other.len() {
+                    // cobor のデコードミスの応急措置
+                    break;
+                }
                 let other_value = ptr::read(other.as_ptr().add(self_ind));
                 if other_value != N::zero() {
                     // 同じインデックスの要素を掛け算して加算
