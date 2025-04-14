@@ -230,6 +230,7 @@ fn main() {
         }
 
         let query_tokens = tokenize_with_sudachi(&query, "B");
+        let query_tokens = filter_tokens(query_tokens, &blacklist());
         let query_token_refs: Vec<&str> = query_tokens.iter().map(|s| s.as_str()).collect();
         println!("Query tokens: {:?}", query_token_refs);
         let query = {
