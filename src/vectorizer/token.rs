@@ -8,6 +8,20 @@ use serde::{Deserialize, Serialize};
 use crate::utils::normalizer::IntoNormalizer;
 
 ///  TokenFrequency 構造体
+/// tokenの出現頻度を管理するための構造体です
+/// tokenの出現回数をカウントし、TF-IDFの計算を行います
+/// 
+/// # Examples
+/// ```
+/// use vectorizer::token::TokenFrequency;
+/// let mut token_freq = TokenFrequency::new();
+/// token_freq.add_token("token1");
+/// token_freq.add_token("token2");
+/// token_freq.add_token("token1");
+/// 
+/// let tf = token_freq.tf_vector::<f64>();
+/// println!("{:?}", tf);
+/// ```
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TokenFrequency {
     #[serde(with = "indexmap::map::serde_seq")]
@@ -17,6 +31,7 @@ pub struct TokenFrequency {
 
 /// Tokenの追加、削除の実装
 impl TokenFrequency {
+    /// 新しいTokenFrequencyを作成するメソッド
     pub fn new() -> Self {
         TokenFrequency {
             token_count: IndexMap::new(),

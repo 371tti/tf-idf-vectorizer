@@ -20,6 +20,7 @@ where N: Num + Into<f64> + AddAssign + MulAssign + NormalizedMultiply + Copy + N
 
 impl<N> Index<N>
 where N: Num + Into<f64> + AddAssign + MulAssign + NormalizedMultiply + Copy + NormalizedBounded, f64: IntoNormalizer<N> {
+    /// 新しいインデックスを作成するメソッド
     pub fn new() -> Self {
         Self {
             matrix: Vec::new(),
@@ -40,6 +41,10 @@ where N: Num + Into<f64> + AddAssign + MulAssign + NormalizedMultiply + Copy + N
     }
 
     /// インデックスにドキュメントを追加するメソッド
+    /// 
+    /// # Arguments
+    /// * `doc_id` - ドキュメントのID
+    /// * `tokens` - ドキュメントのトークン
     pub fn add_doc(&mut self, doc_id: String, tokens: &[&str]) {
         // TFの計算
         let mut doc_tf = TokenFrequency::new();
@@ -69,6 +74,14 @@ where N: Num + Into<f64> + AddAssign + MulAssign + NormalizedMultiply + Copy + N
         self.matrix.push(vec);
     }
 
+    /// query vectorを生成するメソッド
+    /// 重要度を考慮せず、トークンの有無だけでベクトルを生成します。
+    /// 
+    /// # Arguments
+    /// * `tokens` - クエリのトークン
+    /// 
+    /// # Returns
+    /// * `ZeroSpVec<N>` - クエリのベクトル
     pub fn generate_query_mask(&self, tokens: &[&str]) -> ZeroSpVec<N> {
         // TFの計算
         let mut query_tf = TokenFrequency::new();
@@ -83,6 +96,13 @@ where N: Num + Into<f64> + AddAssign + MulAssign + NormalizedMultiply + Copy + N
         vec
     }
 
+    /// query vectorを生成するメソッド
+    /// 
+    /// # Arguments
+    /// * `tokens` - クエリのトークン
+    /// 
+    /// # Returns
+    /// * `ZeroSpVec<N>` - クエリのベクトル
     pub fn generate_query(&self, tokens: &[&str]) -> ZeroSpVec<N> {
         // TFの計算
         let mut query_tf = TokenFrequency::new();
@@ -97,6 +117,13 @@ where N: Num + Into<f64> + AddAssign + MulAssign + NormalizedMultiply + Copy + N
         vec
     }
 
+    /// クエリを検索するメソッド
+    /// コサイン類似度を計算し、類似度の高い順にソートして返します。
+    /// # Arguments
+    /// * `query` - クエリのベクトル
+    /// 
+    /// # Returns
+    /// * `Vec<(String, f64)>` - 検索結果のベクトル
     pub fn search_cosine_similarity(&self, query: &ZeroSpVec<N>) -> Vec<(String, f64)> {
         let mut result = Vec::new();
 
@@ -119,6 +146,16 @@ where N: Num + Into<f64> + AddAssign + MulAssign + NormalizedMultiply + Copy + N
         result
     }
 
+    /// クエリを検索するメソッド
+    /// コサイン類似度を計算し、類似度の高い順にソートして返します。
+    /// 並列処理を使用して、検索を高速化します。
+    /// 
+    /// # Arguments
+    /// * `query` - クエリのベクトル
+    /// * `thread_count` - スレッド数
+    /// 
+    /// # Returns
+    /// * `Vec<(String, f64)>` - 検索結果のベクトル
     pub fn search_cosine_similarity_parallel(&self, query: &ZeroSpVec<N>, thread_count: usize) -> Vec<(String, f64)>
     where
         N: Send + Sync,

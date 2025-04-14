@@ -12,6 +12,7 @@ pub struct TFIDFVectorizer {
 }
 
 impl TFIDFVectorizer {
+    /// 新しいTF-IDFベクトライザを作成するメソッド
     pub fn new() -> Self {
         Self {
             corpus: TokenFrequency::new(),
@@ -19,10 +20,13 @@ impl TFIDFVectorizer {
         }
     }
 
+    /// コーパスになったドキュメントの数を取得するメソッド
     pub fn doc_num(&self) -> u64 {
         self.doc_num
     }
 
+    /// コーパスのトークン数を取得するメソッド
+    /// トークン数はユニークなトークンの数を返す
     pub fn add_corpus(&mut self, tokens: &[&str]) {
         // TFの計算
         let mut doc_tf = TokenFrequency::new();
@@ -34,6 +38,13 @@ impl TFIDFVectorizer {
         self.doc_num += 1;
     }
 
+    /// TF-IDFベクトルを生成するメソッド
+    /// 
+    /// # Arguments
+    /// * `tokens` - ドキュメントのトークン
+    /// 
+    /// # Returns
+    /// * `Vec<(&str, f64)>` - TF-IDFベクトル
     pub fn tf_idf_vector(&self, tokens: &[&str]) -> Vec<(&str, f64)> {
         // TFの計算
         let mut doc_tf = TokenFrequency::new();
@@ -52,6 +63,16 @@ impl TFIDFVectorizer {
         result.sort_by(|a, b| b.1.total_cmp(&a.1));
         result
     }
+
+    /// TF-IDFベクトルを生成するメソッド
+    /// /// 並列処理を使用して、検索を高速化します。
+    /// 
+    /// # Arguments
+    /// * `tokens` - ドキュメントのトークン
+    /// * `thread_count` - スレッド数
+    /// 
+    /// # Returns
+    /// * `Vec<(&str, f64)>` - TF-IDFベクトル
     pub fn tf_idf_vector_parallel(&self, tokens: &[&str], thread_count: usize) -> Vec<(&str, f64)> {
         // TFの計算
         let mut doc_tf = TokenFrequency::new();
