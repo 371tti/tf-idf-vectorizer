@@ -61,6 +61,29 @@ where
         result
     }
 
+    pub fn norm_no_sqrt<R>(&self) -> R
+    where R: Num + AddAssign + MulAssign + Copy, N: Into<R> {
+        let mut result: R = R::zero(); // Updated to use R::zero() directly
+    
+        let self_nnz = self.nnz();
+    
+        // nnz == 0なら返す
+        if self_nnz == 0 {
+            return result;
+        }
+    
+        unsafe {
+            // キャッシュしたポインタを用いる
+            let self_val_ptr = self.val_ptr();
+            
+            for i in 0..self_nnz {
+                let value = ptr::read(self_val_ptr.add(i)).into();
+                result += value * value;
+            }
+        }
+        result
+    }
+
     /// アダマール積を計算するメソッド
     /// 
     /// # Arguments

@@ -127,14 +127,15 @@ where N: Num + Into<f64> + AddAssign + MulAssign + NormalizedMultiply + Copy + N
     pub fn search_cosine_similarity(&self, query: &ZeroSpVec<N>) -> Vec<(String, f64)> {
         let mut result = Vec::new();
 
+        let idf_vec = self.corpus_token_freq.
+            idf_vector_ref_str::<N>(self.matrix.len() as u64).into_iter().map(|(_, idf)| idf).collect::<Vec<N>>();
+
         // IDFとqueryを先に乗算
-        let idf_query: ZeroSpVec<N> = query.hadamard_normalized_vec(
-            &self.corpus_token_freq.
-            idf_vector_ref_str::<N>(self.matrix.len() as u64).into_iter().map(|(_, idf)| idf).collect::<Vec<N>>()
-        );
+        let idf_query: ZeroSpVec<N> = query.hadamard_normalized_vec(&idf_vec);
 
         // ドキュメントベクトルとIDFを掛け算してコサイン類似度を計算
         for (i, doc_vec) in self.matrix.iter().enumerate() {
+            doc_vec.hadamard_normalized_vec(&idf_vec);
             let similarity = doc_vec.cosine_similarity_normalized::<f64>(&idf_query);
             if similarity != 0.0 {
                 result.push((self.doc_id[i].clone(), similarity));

@@ -72,8 +72,8 @@ where
     pub fn cosine_similarity_normalized<R>(&self, other: &Self) -> R
     where R: Num, N: Into<f64>, f64: IntoNormalizer<R> {
         let dot_product: f64 = self.dot(other);
-        let self_norm: f64 = self.dot(self).sqrt();
-        let other_norm: f64 = other.dot(other).sqrt();
+        let self_norm: f64 = self.norm_no_sqrt().sqrt();
+        let other_norm: f64 = other.norm_no_sqrt().sqrt();
 
         if self_norm == 0.0 || other_norm == 0.0 {
             return R::zero();
