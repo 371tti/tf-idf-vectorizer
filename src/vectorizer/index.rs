@@ -108,6 +108,7 @@ where N: Num + Into<f64> + AddAssign + MulAssign + NormalizedMultiply + Copy + N
     /// 
     /// # Returns
     /// * `ZeroSpVec<N>` - クエリのベクトル
+    #[inline]
     pub fn generate_query(&self, tokens: &[&str]) -> ZeroSpVec<N> {
         // TFの計算
         let mut query_tf = TokenFrequency::new();
@@ -119,6 +120,16 @@ where N: Num + Into<f64> + AddAssign + MulAssign + NormalizedMultiply + Copy + N
             let tf_val: N = query_tf.tf_token(token); // ここtf_tokenの内部でいちいちvecのmax計算してるのが最適化されるのか？
             vec.push(tf_val);
         }
+
+        let idf_vec = 
+        self.corpus_token_freq
+            .idf_vector_ref_str::<N>(self.matrix.len() as u64)
+            .into_iter()
+            .map(|(_, idf)| idf)
+            .collect::<Vec<N>>();
+
+        // TF-IDFの計算
+        vec = vec.hadamard_normalized_vec(&idf_vec);
         vec
     }
 
@@ -167,7 +178,7 @@ where N: Num + Into<f64> + AddAssign + MulAssign + NormalizedMultiply + Copy + N
     /// # Returns
     /// * `Vec<(String, f64)>` - 検索結果のベクトル
     #[inline]
-    pub fn search_cosine_similarity_parallel(&self, query: &ZeroSpVec<N>, thread_count: usize) -> Vec<(String, f64)>
+    pub fn search_cosine_similarity_parallel(&self, tf_idf_query: &ZeroSpVec<N>, thread_count: usize) -> Vec<(String, f64)>
     where
         N: Send + Sync,
     {
@@ -177,9 +188,6 @@ where N: Num + Into<f64> + AddAssign + MulAssign + NormalizedMultiply + Copy + N
                 .into_iter()
                 .map(|(_, idf)| idf)
                 .collect::<Vec<N>>();
-
-        // IDFとqueryを先に乗算
-        let idf_query: ZeroSpVec<N> = query.hadamard_normalized_vec(&idf_vec);
 
         let pool = rayon::ThreadPoolBuilder::new()
             .num_threads(thread_count)
@@ -199,7 +207,7 @@ where N: Num + Into<f64> + AddAssign + MulAssign + NormalizedMultiply + Copy + N
                         .enumerate()
                         .filter_map(|(i, (doc_vec, _))| {
                             let tf_idf_doc_vec = doc_vec.hadamard_normalized_vec(&idf_vec);
-                            let similarity = tf_idf_doc_vec.cosine_similarity_normalized::<f64>(&idf_query);
+                            let similarity = tf_idf_doc_vec.cosine_similarity_normalized::<f64>(&tf_idf_query);
                             if similarity != 0.0 {
                                 Some((base_idx + i, similarity))
                             } else {
@@ -218,5 +226,26 @@ where N: Num + Into<f64> + AddAssign + MulAssign + NormalizedMultiply + Copy + N
         final_result
     }
 
-    
+    pub fn search_bm25(&self, query: &ZeroSpVec<N>, k1: f64, b: f64) -> Vec<(String, f64)> {
+        let mut result = Vec::new();
+        let avg_doc_len = self.corpus_token_freq.token_total_count() / self.doc_num() as u64;
+        
+        let idf_vec = 
+            self.corpus_token_freq
+                .idf_vector_ref_str::<N>(self.matrix.len() as u64)
+                .into_iter()
+                .map(|(_, idf)| idf)
+                .collect::<Vec<N>>();
+        
+        for (i, (doc_vec, doc_len)) in self.matrix.iter().enumerate() {
+            let mut score: f64 = 0.0;
+            let doc_norm_len = doc_len / avg_doc_len;
+
+            
+        }
+
+        // 類似度でソート
+        result.sort_by(|a, b| b.1.total_cmp(&a.1));
+        result
+    }
 }
