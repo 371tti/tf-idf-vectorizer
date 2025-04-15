@@ -70,10 +70,10 @@ where
     }
 
     pub fn cosine_similarity_normalized<R>(&self, other: &Self) -> R
-    where R: Num, N: Into<f64>, f64: IntoNormalizer<R> {
+    where R: Num, N: Into<f64> + Copy, f64: IntoNormalizer<R> {
         let dot_product: f64 = self.dot(other);
-        let self_norm: f64 = self.norm_no_sqrt().sqrt();
-        let other_norm: f64 = other.norm_no_sqrt().sqrt();
+        let self_norm: f64 = self.norm_sq().sqrt();
+        let other_norm: f64 = other.norm_sq().sqrt();
 
         if self_norm == 0.0 || other_norm == 0.0 {
             return R::zero();
@@ -139,40 +139,37 @@ where
     /// # Returns
     /// * `ZeroSpVec<N>` - アダマール積の結果
     #[inline]
-    pub fn hadamard_normalized_vec(&self, other: &Vec<N>) -> Self {
-        debug_assert_eq!(
-            self.len(),
-            other.len(),
-            "Vectors must be of the same length to compute hadamard product."
-        );
+pub fn hadamard_normalized_vec(&self, other: &[N]) -> Self
+where
+    N: Copy + Num + PartialEq,
+{
+    debug_assert_eq!(self.len(), other.len());
 
-        let min_nnz = self.nnz();
-        let mut result: ZeroSpVec<N> = ZeroSpVec::with_capacity(min_nnz);
-        result.len = self.len();
+    let self_nnz = self.nnz();
+    let mut result = ZeroSpVec::with_capacity(self_nnz);
+    result.len = self.len();
 
-        // nnz == 0 ならゼロ埋めで返す
-        if self.nnz() == 0 {
-            result.len = self.len();
-            return result;
-        }
+    if self_nnz == 0 {
+        return result;
+    }
 
-        unsafe {
-            let mut i = 0;
-            while i < self.nnz() {
-                let self_ind = ptr::read(self.ind_ptr().add(i));
-                let self_val = ptr::read(self.val_ptr().add(i));
-                if self_ind >= other.len() {
-                    // cobor のデコードミスの応急措置
-                    break;
-                }
-                let other_value = ptr::read(other.as_ptr().add(self_ind));
-                if other_value != N::zero() {
-                    // 同じインデックスの要素を掛け算して加算
-                    result.raw_push(self_ind, self_val.mul_normalized(other_value));
-                }
-                i += 1;
+    unsafe {
+        let indices = std::slice::from_raw_parts(self.ind_ptr(), self_nnz);
+        let values  = std::slice::from_raw_parts(self.val_ptr(), self_nnz);
+        let other_ptr = other.as_ptr();
+        let zero = N::zero();
+
+        for i in 0..self_nnz {
+            let idx = indices[i];
+            let val = values[i];
+            let other_val = *other_ptr.add(idx);
+
+            if other_val != zero {
+                result.raw_push(idx, val.mul_normalized(other_val));
             }
         }
-        result
     }
+
+    result
+}
 }

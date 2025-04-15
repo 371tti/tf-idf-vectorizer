@@ -243,7 +243,7 @@ fn main() {
             idx.search_cosine_similarity_parallel(&query, 16)
         };
         let duration = start.elapsed();
-        let top_n = 10;
+        let top_n = 20;
         println!("Search results (Top {} results, Time taken: {:.2?}):", top_n, duration);
         for (doc_id, similarity) in result0.into_iter().take(top_n) {
             println!("Document ID: {}, Similarity: {:.4}", doc_id, similarity);

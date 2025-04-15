@@ -1,4 +1,4 @@
-use std::{ops::{AddAssign, MulAssign}, ptr};
+use std::{cmp::Ordering, ops::{AddAssign, MulAssign}, ptr};
 
 use num::Num;
 
@@ -15,72 +15,73 @@ where
     /// 
     /// # Returns
     /// * `N` - ドット積の結果
-    #[inline]
+    #[inline(always)]
     pub fn dot<R>(&self, other: &Self) -> R
-    where R: Num + AddAssign, N: Into<R> {
+    where
+        R: Num + AddAssign,
+        N: Into<R> + Copy,
+    {
         debug_assert_eq!(
             self.len(),
             other.len(),
             "Vectors must be of the same length to compute dot product."
         );
     
-        let mut result: R = R::zero(); // Updated to use R::zero() directly
-    
+        let mut result = R::zero();
         let self_nnz = self.nnz();
         let other_nnz = other.nnz();
     
-        // nnz == 0なら返す
-        if self_nnz == 0 {
+        if self_nnz == 0 || other_nnz == 0 {
             return result;
         }
     
         unsafe {
+            let self_inds = std::slice::from_raw_parts(self.ind_ptr(), self_nnz);
+            let self_vals = std::slice::from_raw_parts(self.val_ptr(), self_nnz);
+            let other_inds = std::slice::from_raw_parts(other.ind_ptr(), other_nnz);
+            let other_vals = std::slice::from_raw_parts(other.val_ptr(), other_nnz);
+            
             let mut i = 0;
             let mut j = 0;
-            // キャッシュしたポインタを用いる
-            let self_ind_ptr = self.ind_ptr();
-            let self_val_ptr = self.val_ptr();
-            let other_ind_ptr = other.ind_ptr();
-            let other_val_ptr = other.val_ptr();
             
             while i < self_nnz && j < other_nnz {
-                let self_ind = ptr::read(self_ind_ptr.add(i));
-                let other_ind = ptr::read(other_ind_ptr.add(j));
-                if self_ind == other_ind {
-                    let value = ptr::read(self_val_ptr.add(i)).into() * ptr::read(other_val_ptr.add(j)).into();
-                    result += value;
-                    i += 1;
-                    j += 1;
-                } else if self_ind < other_ind {
-                    i += 1;
-                } else {
-                    j += 1;
+                match self_inds[i].cmp(&other_inds[j]) {
+                    Ordering::Equal => {
+                        result += self_vals[i].into() * other_vals[j].into();
+                        i += 1;
+                        j += 1;
+                    }
+                    Ordering::Less => i += 1,
+                    Ordering::Greater => j += 1,
                 }
             }
         }
+    
         result
     }
 
-    pub fn norm_no_sqrt<R>(&self) -> R
-    where R: Num + AddAssign + MulAssign + Copy, N: Into<R> {
-        let mut result: R = R::zero(); // Updated to use R::zero() directly
-    
+    #[inline(always)]
+    pub fn norm_sq<R>(&self) -> R
+    where
+        R: Num + AddAssign + Copy,
+        N: Into<R> + Copy,
+    {
+        let mut result = R::zero();
         let self_nnz = self.nnz();
     
-        // nnz == 0なら返す
         if self_nnz == 0 {
             return result;
         }
     
         unsafe {
-            // キャッシュしたポインタを用いる
             let self_val_ptr = self.val_ptr();
-            
+    
             for i in 0..self_nnz {
-                let value = ptr::read(self_val_ptr.add(i)).into();
-                result += value * value;
+                let val: R = (*self_val_ptr.add(i)).into();
+                result += val * val;
             }
         }
+    
         result
     }
 
