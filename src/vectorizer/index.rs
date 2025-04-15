@@ -13,7 +13,7 @@ use super::token::TokenFrequency;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Index<N>
 where N: Num + Into<f64> + AddAssign + MulAssign + NormalizedMultiply + Copy + NormalizedBounded {
-    matrix: Vec<ZeroSpVec<N>>,
+    matrix: Vec<(ZeroSpVec<N>, u64)>,
     doc_id: Vec<String>,
     corpus_token_freq: TokenFrequency,
 }
@@ -38,6 +38,11 @@ where N: Num + Into<f64> + AddAssign + MulAssign + NormalizedMultiply + Copy + N
     /// トークン数はユニークなトークンの数を返す
     pub fn token_num(&self) -> usize {
         self.corpus_token_freq.token_num()
+    }
+
+    /// インデックスのコーパス関連のデータ取得、解析のため
+    pub fn corpus(&self) -> &TokenFrequency {
+        &self.corpus_token_freq
     }
 
     /// インデックスにドキュメントを追加するメソッド
@@ -66,12 +71,12 @@ where N: Num + Into<f64> + AddAssign + MulAssign + NormalizedMultiply + Copy + N
         if added_corpus_token_num > 0 {
             // 新しいトークンが追加された場合、matrixを拡張する
             for other_tf in self.matrix.iter_mut() {
-                other_tf.add_dim(added_corpus_token_num);
+                other_tf.0.add_dim(added_corpus_token_num);
             }
         }
         vec.shrink_to_fit();
         // matrixに追加
-        self.matrix.push(vec);
+        self.matrix.push((vec, doc_tf.token_total_count())); // doc_idのインデックスを追加
     }
 
     /// query vectorを生成するメソッド
@@ -138,7 +143,7 @@ where N: Num + Into<f64> + AddAssign + MulAssign + NormalizedMultiply + Copy + N
         let idf_query: ZeroSpVec<N> = query.hadamard_normalized_vec(&idf_vec);
 
         // ドキュメントベクトルとIDFを掛け算してコサイン類似度を計算
-        for (i, doc_vec) in self.matrix.iter().enumerate() {
+        for (i, (doc_vec, _)) in self.matrix.iter().enumerate() {
             let tf_idf_doc_vec = doc_vec.hadamard_normalized_vec(&idf_vec);
             let similarity = tf_idf_doc_vec.cosine_similarity_normalized::<f64>(&idf_query);
             if similarity != 0.0 {
@@ -192,7 +197,7 @@ where N: Num + Into<f64> + AddAssign + MulAssign + NormalizedMultiply + Copy + N
                     chunk
                         .iter()
                         .enumerate()
-                        .filter_map(|(i, doc_vec)| {
+                        .filter_map(|(i, (doc_vec, _))| {
                             let tf_idf_doc_vec = doc_vec.hadamard_normalized_vec(&idf_vec);
                             let similarity = tf_idf_doc_vec.cosine_similarity_normalized::<f64>(&idf_query);
                             if similarity != 0.0 {
@@ -212,4 +217,6 @@ where N: Num + Into<f64> + AddAssign + MulAssign + NormalizedMultiply + Copy + N
         final_result.extend(result.into_iter().map(|(i, sim)| (self.doc_id[i].clone(), sim)));
         final_result
     }
+
+    
 }
