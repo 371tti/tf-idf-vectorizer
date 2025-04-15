@@ -15,7 +15,7 @@ where
     /// 
     /// # Returns
     /// * `N` - ドット積の結果
-    #[inline(always)]
+    #[inline]
     pub fn dot<R>(&self, other: &Self) -> R
     where
         R: Num + AddAssign,
@@ -45,7 +45,9 @@ where
             let mut j = 0;
             
             while i < self_nnz && j < other_nnz {
-                match self_inds[i].cmp(&other_inds[j]) {
+                let s_ind = *self_inds.get_unchecked(i);
+                let o_ind = *other_inds.get_unchecked(j);
+                match s_ind.cmp(&o_ind) {
                     Ordering::Equal => {
                         result += self_vals[i].into() * other_vals[j].into();
                         i += 1;
@@ -60,7 +62,7 @@ where
         result
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn norm_sq<R>(&self) -> R
     where
         R: Num + AddAssign + Copy,

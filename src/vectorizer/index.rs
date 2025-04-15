@@ -161,16 +161,17 @@ where N: Num + Into<f64> + AddAssign + MulAssign + NormalizedMultiply + Copy + N
     /// 
     /// # Returns
     /// * `Vec<(String, f64)>` - 検索結果のベクトル
+    #[inline]
     pub fn search_cosine_similarity_parallel(&self, query: &ZeroSpVec<N>, thread_count: usize) -> Vec<(String, f64)>
     where
         N: Send + Sync,
     {
         let idf_vec = 
-            self.corpus_token_freq.
-            idf_vector_ref_str::<N>(self.matrix.len() as u64)
-            .into_iter()
-            .map(|(_, idf)| idf)
-            .collect::<Vec<N>>();
+            self.corpus_token_freq
+                .idf_vector_ref_str::<N>(self.matrix.len() as u64)
+                .into_iter()
+                .map(|(_, idf)| idf)
+                .collect::<Vec<N>>();
 
         // IDFとqueryを先に乗算
         let idf_query: ZeroSpVec<N> = query.hadamard_normalized_vec(&idf_vec);
@@ -180,24 +181,35 @@ where N: Num + Into<f64> + AddAssign + MulAssign + NormalizedMultiply + Copy + N
             .build()
             .expect("Failed to build thread pool");
 
-        let mut result: Vec<(String, f64)> = pool.install(|| {
+        let chunk_size = ((self.matrix.len() + thread_count - 1) / thread_count) / 4; // スレッド数で割り切れない場合は、余りを考慮して調整
+
+        let mut result: Vec<(usize, f64)> = pool.install(|| {
             self.matrix
-                .par_iter()
+                .par_chunks(chunk_size)
                 .enumerate()
-                .filter_map(|(i, doc_vec)| {
-                    let tf_idf_doc_vec = doc_vec.hadamard_normalized_vec(&idf_vec);
-                    let similarity = tf_idf_doc_vec.cosine_similarity_normalized::<f64>(&idf_query);
-                    if similarity != 0.0 {
-                        Some((self.doc_id[i].clone(), similarity))
-                    } else {
-                        None
-                    }
+                .flat_map(|(chunk_idx, chunk)| {
+                    let base_idx = chunk_idx * chunk_size;
+                    chunk
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(i, doc_vec)| {
+                            let tf_idf_doc_vec = doc_vec.hadamard_normalized_vec(&idf_vec);
+                            let similarity = tf_idf_doc_vec.cosine_similarity_normalized::<f64>(&idf_query);
+                            if similarity != 0.0 {
+                                Some((base_idx + i, similarity))
+                            } else {
+                                None
+                            }
+                        })
+                        .collect::<Vec<_>>()
                 })
                 .collect()
         });
 
         // 類似度でソート
-        result.sort_by(|a, b| b.1.total_cmp(&a.1));
-        result
+        result.sort_unstable_by(|a, b| b.1.total_cmp(&a.1));
+        let mut final_result: Vec<(String, f64)> = Vec::with_capacity(result.len());
+        final_result.extend(result.into_iter().map(|(i, sim)| (self.doc_id[i].clone(), sim)));
+        final_result
     }
 }

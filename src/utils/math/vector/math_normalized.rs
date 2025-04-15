@@ -69,6 +69,7 @@ where
         result
     }
 
+    #[inline]
     pub fn cosine_similarity_normalized<R>(&self, other: &Self) -> R
     where R: Num, N: Into<f64> + Copy, f64: IntoNormalizer<R> {
         let dot_product: f64 = self.dot(other);
@@ -139,37 +140,37 @@ where
     /// # Returns
     /// * `ZeroSpVec<N>` - アダマール積の結果
     #[inline]
-pub fn hadamard_normalized_vec(&self, other: &[N]) -> Self
-where
-    N: Copy + Num + PartialEq,
-{
-    debug_assert_eq!(self.len(), other.len());
+    pub fn hadamard_normalized_vec(&self, other: &[N]) -> Self
+    where
+        N: Copy + Num + PartialEq,
+    {
+        debug_assert_eq!(self.len(), other.len());
 
-    let self_nnz = self.nnz();
-    let mut result = ZeroSpVec::with_capacity(self_nnz);
-    result.len = self.len();
+        let self_nnz = self.nnz();
+        let mut result = ZeroSpVec::with_capacity(self_nnz);
+        result.len = self.len();
 
-    if self_nnz == 0 {
-        return result;
-    }
+        if self_nnz == 0 {
+            return result;
+        }
 
-    unsafe {
-        let indices = std::slice::from_raw_parts(self.ind_ptr(), self_nnz);
-        let values  = std::slice::from_raw_parts(self.val_ptr(), self_nnz);
-        let other_ptr = other.as_ptr();
-        let zero = N::zero();
+        unsafe {
+            let indices = std::slice::from_raw_parts(self.ind_ptr(), self_nnz);
+            let values  = std::slice::from_raw_parts(self.val_ptr(), self_nnz);
+            let other_ptr = other.as_ptr();
+            let zero = N::zero();
 
-        for i in 0..self_nnz {
-            let idx = indices[i];
-            let val = values[i];
-            let other_val = *other_ptr.add(idx);
+            for i in 0..self_nnz {
+                let idx = indices[i];
+                let val = values[i];
+                let other_val = *other_ptr.add(idx);
 
-            if other_val != zero {
-                result.raw_push(idx, val.mul_normalized(other_val));
+                if other_val != zero {
+                    result.raw_push(idx, val.mul_normalized(other_val));
+                }
             }
         }
-    }
 
-    result
-}
+        result
+    }
 }
