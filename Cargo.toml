@@ -1,6 +1,6 @@
 [package]
 name = "tf-idf-vectorizer"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
 description = "A simple search and analyze engine"
 license = "MIT"
@@ -14,4 +14,3 @@ indexmap = { version = "2.9.0", features = ["serde"] }
 rayon = "1.10.0"
 
 serde_cbor = "0.10.2"
-bincode = "2.0.1"
