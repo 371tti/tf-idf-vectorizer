@@ -1,8 +1,5 @@
 use num::Num;
 use serde::{Deserialize, Serialize, Deserializer, Serializer};
-use serde::de::{self, Visitor, MapAccess};
-use std::fmt;
-use std::marker::PhantomData;
 use std::ops::{AddAssign, MulAssign};
 
 use crate::utils::normalizer::{NormalizedBounded, NormalizedMultiply};
