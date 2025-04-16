@@ -15,12 +15,13 @@ pub enum SearchMethod {
 }
 
 pub enum SearchBias {
-
+    None,
+    LenPenalty(f64),
 }
 
 impl<N> Index<N>
 where N: Num + Into<f64> + AddAssign + MulAssign + NormalizedMultiply + Copy + NormalizedBounded + Send + Sync, f64: IntoNormalizer<N> {
-    pub fn search(&self, method: SearchMethod, query: &ZeroSpVec<N>, top_n: usize) -> Vec<(String, f64)> {
+    pub fn search(&self, method: SearchMethod, query: &ZeroSpVec<N>, top_n: usize, parameter: SearchBias) -> Vec<(String, f64)> {
         let idf_vec = 
             self.corpus_token_freq.
             idf_vector_ref_str::<N>(self.matrix.len() as u64)
@@ -34,6 +35,23 @@ where N: Num + Into<f64> + AddAssign + MulAssign + NormalizedMultiply + Copy + N
             SearchMethod::DotProduct => self.search_dot(query, &idf_vec),
             SearchMethod::DotProductParallel(thread_count) => self.search_dot_parallel(query, &idf_vec, thread_count),
         };
+
+        // パラメータを反映
+        match parameter {
+            SearchBias::None => {},
+            SearchBias::LenPenalty(penalty) => {
+                let min_doc_len = self.doc_token_count.iter().min().unwrap_or(&1u64);
+                let max_doc_len = self.doc_token_count.iter().max().unwrap_or(&1u64);
+                let avg_doc_len = self.corpus_token_freq.token_total_count() as f64 / self.doc_num() as f64;
+
+                // 各スコアに対して、平均文書長と各文書長の比率に基づくバイアスを適用する
+                score_vec.iter_mut().for_each(|(idx, score)| {
+                    let doc_len = self.doc_token_count[*idx] as f64;
+                    // 文書が平均より長い場合はスコアを低下させ、短い場合は上昇させる
+                    *score *= (avg_doc_len / doc_len).powf(penalty);
+                });
+            }
+        }
 
         // スコアをソートして上位top_nを取得
         let mut result = Vec::with_capacity(top_n);

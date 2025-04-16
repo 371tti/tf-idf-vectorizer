@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use rayon::iter::{ParallelBridge, ParallelIterator};
 use rayon::ThreadPoolBuilder;
-use tf_idf_vectorizer::vectorizer::index::search::SearchMethod;
+use tf_idf_vectorizer::vectorizer::index::search::{SearchBias, SearchMethod};
 use tf_idf_vectorizer::vectorizer::index::Index;
 
 
@@ -241,7 +241,7 @@ fn main() {
         let start = Instant::now();
         let result0 = {
             let idx = index.lock().expect("Failed to lock index");
-            idx.search(SearchMethod::CosineSimilarityParallel(32), &query, 20)
+            idx.search(SearchMethod::CosineSimilarityParallel(32), &query, 20, SearchBias::LenPenalty(0.0))
         };
         let duration = start.elapsed();
         let top_n = 20;
