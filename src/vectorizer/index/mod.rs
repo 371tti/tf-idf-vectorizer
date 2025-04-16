@@ -5,6 +5,7 @@ pub mod query;
 use std::ops::{AddAssign, MulAssign};
 
 use num::Num;
+use serde::Serialize;
 
 use crate::utils::{math::vector::ZeroSpVec, normalizer::{IntoNormalizer, NormalizedBounded, NormalizedMultiply}};
 
@@ -12,10 +13,11 @@ use super::token::TokenFrequency;
 
 /// インデックス
 /// ドキュメント単位でインデックスを作成、検索するための構造体です
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Index<N>
 where N: Num + Into<f64> + AddAssign + MulAssign + NormalizedMultiply + Copy + NormalizedBounded {
-    matrix: Vec<(ZeroSpVec<N>, u64)>,
+    matrix: Vec<ZeroSpVec<N>>,
+    doc_token_count: Vec<u64>,
     doc_id: Vec<String>,
     corpus_token_freq: TokenFrequency,
 }
@@ -26,6 +28,7 @@ where N: Num + Into<f64> + AddAssign + MulAssign + NormalizedMultiply + Copy + N
     pub fn new() -> Self {
         Self {
             matrix: Vec::new(),
+            doc_token_count: Vec::new(),
             doc_id: Vec::new(),
             corpus_token_freq: TokenFrequency::new(),
         }
@@ -36,10 +39,8 @@ where N: Num + Into<f64> + AddAssign + MulAssign + NormalizedMultiply + Copy + N
         self.matrix.len()
     }
 
-    /// インデックスのトークン数を取得するメソッド
-    /// トークン数はユニークなトークンの数を返す
-    pub fn token_num(&self) -> usize {
-        self.corpus_token_freq.token_num()
+    pub fn doc_token_count(&self, index: usize) -> Option<&u64> {
+        self.doc_token_count.get(index)
     }
 
     /// インデックスのコーパス関連のデータ取得、解析のため
@@ -73,11 +74,12 @@ where N: Num + Into<f64> + AddAssign + MulAssign + NormalizedMultiply + Copy + N
         if added_corpus_token_num > 0 {
             // 新しいトークンが追加された場合、matrixを拡張する
             for other_tf in self.matrix.iter_mut() {
-                other_tf.0.add_dim(added_corpus_token_num);
+                other_tf.add_dim(added_corpus_token_num);
             }
         }
         vec.shrink_to_fit();
         // matrixに追加
-        self.matrix.push((vec, doc_tf.token_total_count())); // doc_idのインデックスを追加
+        self.doc_token_count.push(doc_tf.token_total_count()); // doc_idのインデックスを追加
+        self.matrix.push(vec); // doc_idのインデックスを追加
     }
 }
