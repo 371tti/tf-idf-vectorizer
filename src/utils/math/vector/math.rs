@@ -6,7 +6,7 @@ use super::ZeroSpVec;
 
 impl<N> ZeroSpVec<N> 
 where
-    N: Num + AddAssign + MulAssign
+    N: Num + AddAssign + MulAssign + Copy
 {
     /// ドット積を計算するメソッド
     ///
@@ -62,6 +62,10 @@ where
         result
     }
 
+    /// ベクトルのノルムの二乗を計算するメソッド
+    /// 
+    /// # Returns
+    /// * `R` - ノルムの二乗の結果
     #[inline]
     pub fn norm_sq<R>(&self) -> R
     where
@@ -84,6 +88,24 @@ where
             }
         }
     
+        result
+    }
+
+    pub fn scale(&self, scalar: N) -> ZeroSpVec<N> {
+        let mut result: ZeroSpVec<N> = ZeroSpVec::with_capacity(self.nnz());
+
+        unsafe {
+            result.len = self.len();
+            let self_val_ptr = self.val_ptr();
+            let self_ind_ptr = self.ind_ptr();
+
+            for i in 0..self.nnz() {
+                let val: N = *self_val_ptr.add(i) * scalar;
+                let ind: usize = *self_ind_ptr.add(i);
+                result.raw_push(ind, val);
+            }
+        }
+
         result
     }
 

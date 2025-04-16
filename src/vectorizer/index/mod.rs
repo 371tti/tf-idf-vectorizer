@@ -1,3 +1,5 @@
+pub mod try_serde;
+
 use std::ops::{AddAssign, MulAssign};
 
 use num::Num;
@@ -226,26 +228,32 @@ where N: Num + Into<f64> + AddAssign + MulAssign + NormalizedMultiply + Copy + N
         final_result
     }
 
-    pub fn search_bm25(&self, query: &ZeroSpVec<N>, k1: f64, b: f64) -> Vec<(String, f64)> {
-        let mut result = Vec::new();
-        let avg_doc_len = self.corpus_token_freq.token_total_count() / self.doc_num() as u64;
-        
-        let idf_vec = 
-            self.corpus_token_freq
-                .idf_vector_ref_str::<N>(self.matrix.len() as u64)
-                .into_iter()
-                .map(|(_, idf)| idf)
-                .collect::<Vec<N>>();
-        
-        for (i, (doc_vec, doc_len)) in self.matrix.iter().enumerate() {
-            let mut score: f64 = 0.0;
-            let doc_norm_len = doc_len / avg_doc_len;
+    /// クエリを検索するメソッド
+    /// dot積を計算し、類似度の高い順にソートして返します。
+    #[inline]
+    pub fn search_dot(&self, tf_idf_query: &ZeroSpVec<N>) -> Vec<(String, f64)> {
+        let mut result: Vec<(usize, f64)> = Vec::new();
 
-            
+        let idf_vec = 
+        self.corpus_token_freq
+            .idf_vector_ref_str::<N>(self.matrix.len() as u64)
+            .into_iter()
+            .map(|(_, idf)| idf)
+            .collect::<Vec<N>>();
+
+        // ドキュメントベクトルとqueryを掛け算してコサイン類似度を計算
+        for (i, (doc_vec, _)) in self.matrix.iter().enumerate() {
+            let tf_idf_doc_vec = doc_vec.hadamard_normalized_vec(&idf_vec);
+            let similarity = tf_idf_doc_vec.dot_normalized::<f64>(tf_idf_query);
+            if similarity != 0.0 {
+                result.push((i, similarity.into()));
+            }
         }
 
         // 類似度でソート
         result.sort_by(|a, b| b.1.total_cmp(&a.1));
-        result
+        let mut final_result: Vec<(String, f64)> = Vec::with_capacity(result.len());
+        final_result.extend(result.into_iter().map(|(i, sim)| (self.doc_id[i].clone(), sim)));
+        final_result
     }
 }
