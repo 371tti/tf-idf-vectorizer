@@ -40,15 +40,20 @@ where N: Num + Into<f64> + AddAssign + MulAssign + NormalizedMultiply + Copy + N
         match parameter {
             SearchBias::None => {},
             SearchBias::LenPenalty(penalty) => {
-                let min_doc_len = self.doc_token_count.iter().min().unwrap_or(&1u64);
-                let max_doc_len = self.doc_token_count.iter().max().unwrap_or(&1u64);
-                let avg_doc_len = self.corpus_token_freq.token_total_count() as f64 / self.doc_num() as f64;
-
-                // 各スコアに対して、平均文書長と各文書長の比率に基づくバイアスを適用する
+                // 最小・最大長（f64）
+                let min_len = *self.doc_token_count.iter().min().unwrap_or(&1u64) as f64;
+                let max_len = *self.doc_token_count.iter().max().unwrap_or(&1u64) as f64;
+                let range = (max_len - min_len).max(f64::EPSILON);
+                // 平均長
+                let avg_len = self.corpus_token_freq.token_total_count() as f64 / self.doc_num() as f64;
+                // 正規化後の平均長
+                let avg_norm = (avg_len - min_len) / range;
+            
+                // 各スコアに対して、doc_norm∈[0,1] の範囲でバイアスをかける
                 score_vec.iter_mut().for_each(|(idx, score)| {
                     let doc_len = self.doc_token_count[*idx] as f64;
-                    // 文書が平均より長い場合はスコアを低下させ、短い場合は上昇させる
-                    *score *= (avg_doc_len / doc_len).powf(penalty);
+                    let doc_norm = ((doc_len - min_len) / range).max(f64::EPSILON);
+                    *score *= (avg_norm / doc_norm).powf(penalty);
                 });
             }
         }
