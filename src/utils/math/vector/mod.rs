@@ -22,7 +22,34 @@ where N: Num
     zero: N,
 }
 
-impl<N> ZeroSpVec<N> 
+pub trait ZeroSpVecTrait<N>: Clone + Debug + Default + Index<usize, Output = N>
+where N: Num
+{
+    pub fn ind_ptr(&self) -> *mut usize;
+    pub fn val_ptr(&self) -> *mut N;
+    pub fn raw_push(&mut self, index: usize, value: N);
+    pub fn ind_binary_search(&self, index: &usize) -> Result<usize, usize>;
+    pub fn new() -> Self;
+    pub fn with_capacity(cap: usize) -> Self;
+    pub fn reserve(&mut self, additional: usize);
+    pub fn shrink_to_fit(&mut self);
+    pub fn is_empty(&self) -> bool;
+    pub fn len(&self) -> usize;
+    pub fn capacity(&self) -> usize;
+    pub fn nnz(&self) -> usize;
+    pub fn add_dim(&mut self, dim: usize);
+    pub fn clear(&mut self);
+    pub fn push(&mut self, elem: N);
+    pub fn pop(&mut self) -> Option<N>;
+    pub fn get(&self, index: usize) -> Option<&N>;
+    pub fn get_ind(&self, index: usize) -> Option<usize>;
+    pub fn remove(&mut self, index: usize) -> N;
+    pub fn from_vec(vec: Vec<N>) -> Self;
+    pub fn iter(&self) -> ZeroSpVecIter<N>;
+    pub fn raw_iter(&self) -> ZeroSpVecRawIter<N>;
+}
+
+impl<N> ZeroSpVecTrait<N> for ZeroSpVec<N> 
 where N: Num
 {
     #[inline]
@@ -88,7 +115,7 @@ where N: Num
     }
 
     #[inline]
-    pub fn new() -> Self {
+    fn new() -> Self {
         ZeroSpVec {
             buf: RawZeroSpVec::new(),
             len: 0,
@@ -98,7 +125,7 @@ where N: Num
     }
 
     #[inline]
-    pub fn with_capacity(cap: usize) -> Self {
+    fn with_capacity(cap: usize) -> Self {
         let mut buf = RawZeroSpVec::new();
         buf.cap = cap;
         buf.cap_set();
@@ -111,7 +138,7 @@ where N: Num
     }
 
     #[inline]
-    pub fn reserve(&mut self, additional: usize) {
+    fn reserve(&mut self, additional: usize) {
         let new_cap = self.nnz + additional;
         if new_cap > self.buf.cap {
             self.buf.cap = new_cap;
@@ -120,7 +147,7 @@ where N: Num
     }
 
     #[inline]
-    pub fn shrink_to_fit(&mut self) {
+    fn shrink_to_fit(&mut self) {
         if self.len < self.buf.cap {
             let new_cap = self.nnz;
             self.buf.cap = new_cap;
@@ -129,39 +156,39 @@ where N: Num
     }
 
     #[inline]
-    pub fn is_empty(&self) -> bool {
+    fn is_empty(&self) -> bool {
         self.len == 0
     }
 
     #[inline]
-    pub fn len(&self) -> usize {
+    fn len(&self) -> usize {
         self.len
     }
 
     #[inline]
-    pub fn capacity(&self) -> usize {
+    fn capacity(&self) -> usize {
         self.buf.cap
     }
 
     #[inline]
-    pub fn nnz(&self) -> usize {
+    fn nnz(&self) -> usize {
         self.nnz
     }
 
     #[inline]
-    pub fn add_dim(&mut self, dim: usize) {
+    fn add_dim(&mut self, dim: usize) {
         self.len += dim;
     }
 
     #[inline]
-    pub fn clear(&mut self) {
+    fn clear(&mut self) {
         while let Some(_) = self.pop() {
             // do nothing
         }
     }
 
     #[inline]
-    pub fn push(&mut self, elem: N) {
+    fn push(&mut self, elem: N) {
         if self.nnz == self.buf.cap {
             self.buf.grow();
         }
@@ -178,7 +205,7 @@ where N: Num
     }
 
     #[inline]
-    pub fn pop(&mut self) -> Option<N> {
+    fn pop(&mut self) -> Option<N> {
         if self.nnz == 0 {
             return None;
         }
@@ -195,7 +222,7 @@ where N: Num
     }
 
     #[inline]
-    pub fn get(&self, index: usize) -> Option<&N> {
+    fn get(&self, index: usize) -> Option<&N> {
         if index >= self.len {
             return None;
         }
@@ -212,7 +239,7 @@ where N: Num
     }
 
     #[inline]
-    pub fn get_ind(&self, index: usize) -> Option<usize> {
+    fn get_ind(&self, index: usize) -> Option<usize> {
         if index >= self.nnz {
             return None;
         }
@@ -235,7 +262,7 @@ where N: Num
     /// # Returns
     /// - `N` - 削除した要素の値
     #[inline]
-    pub fn remove(&mut self, index: usize) -> N {
+    fn remove(&mut self, index: usize) -> N {
         debug_assert!(index < self.len, "index out of bounds");
         
         // 論理的な要素数は常に1つ減る
@@ -295,7 +322,7 @@ where N: Num
     }
 
     #[inline]
-    pub fn from_vec(vec: Vec<N>) -> Self {
+    fn from_vec(vec: Vec<N>) -> Self {
         let mut zero_sp_vec = ZeroSpVec::with_capacity(vec.len());
         for entry in vec {
             zero_sp_vec.push(entry);
@@ -304,7 +331,7 @@ where N: Num
     }
 
     #[inline]
-    pub fn iter(&self) -> ZeroSpVecIter<N> {
+    fn iter(&self) -> ZeroSpVecIter<N> {
         ZeroSpVecIter {
             vec: self,
             pos: 0,
@@ -312,7 +339,7 @@ where N: Num
     }
 
     #[inline]
-    pub fn raw_iter(&self) -> ZeroSpVecRawIter<N> {
+    fn raw_iter(&self) -> ZeroSpVecRawIter<N> {
         ZeroSpVecRawIter {
             vec: self,
             pos: 0,

@@ -5,6 +5,8 @@ use token::TokenFrequency;
 pub mod index;
 pub mod token;
 pub mod analyzer;
+pub mod corpus;
+pub mod tfidf;
 
 pub struct TFIDFVectorizer {
     pub corpus: TokenFrequency,

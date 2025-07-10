@@ -2,9 +2,29 @@ use std::{cmp::Ordering, ops::{AddAssign, MulAssign}, ptr};
 
 use num::Num;
 
+use crate::utils::math::vector::ZeroSpVecTrait;
+
 use super::ZeroSpVec;
 
-impl<N> ZeroSpVec<N> 
+pub trait VecOps<N>: ZeroSpVecTrait<N>
+where
+    N: Num + AddAssign + MulAssign + Copy
+{
+    pub fn dot<R>(&self, other: &Self) -> R
+    where
+        R: Num + AddAssign,
+        N: Into<R> + Copy;
+    
+    pub fn norm_sq<R>(&self) -> R
+    where
+        R: Num + AddAssign + Copy,
+        N: Into<R> + Copy;
+
+    pub fn scale(&self, scalar: N) -> Self;
+    pub fn hadamard(&self, other: &Self) -> Self;
+}
+
+impl<N> VecOps<N> for ZeroSpVec<N> 
 where
     N: Num + AddAssign + MulAssign + Copy
 {
@@ -16,7 +36,7 @@ where
     /// # Returns
     /// * `N` - ドット積の結果
     #[inline]
-    pub fn dot<R>(&self, other: &Self) -> R
+    fn dot<R>(&self, other: &Self) -> R
     where
         R: Num + AddAssign,
         N: Into<R> + Copy,
@@ -67,7 +87,7 @@ where
     /// # Returns
     /// * `R` - ノルムの二乗の結果
     #[inline]
-    pub fn norm_sq<R>(&self) -> R
+    fn norm_sq<R>(&self) -> R
     where
         R: Num + AddAssign + Copy,
         N: Into<R> + Copy,
@@ -91,7 +111,7 @@ where
         result
     }
 
-    pub fn scale(&self, scalar: N) -> ZeroSpVec<N> {
+    fn scale(&self, scalar: N) -> ZeroSpVec<N> {
         let mut result: ZeroSpVec<N> = ZeroSpVec::with_capacity(self.nnz());
 
         unsafe {
@@ -117,7 +137,7 @@ where
     /// # Returns
     /// * `ZeroSpVec<N>` - アダマール積の結果
     #[inline]
-    pub fn hadamard(&self, other: &Self) -> Self {
+    fn hadamard(&self, other: &Self) -> Self {
         debug_assert_eq!(
             self.len(),
             other.len(),
