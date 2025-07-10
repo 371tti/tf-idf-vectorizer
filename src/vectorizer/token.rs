@@ -7,6 +7,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::utils::normalizer::IntoNormalizer;
 
+pub trait TokenFrequencyTrait {
+    fn add_token(&mut self, token: &str);
+    fn add_tokens<T>(&mut self, tokens: &[T]) -> &mut Self 
+    where T: AsRef<str>;
+}
+
+
+
 ///  TokenFrequency 構造体
 /// tokenの出現頻度を管理するための構造体です
 /// tokenの出現回数をカウントし、TF-IDFの計算を行います

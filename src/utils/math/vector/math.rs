@@ -10,18 +10,18 @@ pub trait VecOps<N>: ZeroSpVecTrait<N>
 where
     N: Num + AddAssign + MulAssign + Copy
 {
-    pub fn dot<R>(&self, other: &Self) -> R
+    fn dot<R>(&self, other: &Self) -> R
     where
         R: Num + AddAssign,
         N: Into<R> + Copy;
     
-    pub fn norm_sq<R>(&self) -> R
+    fn norm_sq<R>(&self) -> R
     where
         R: Num + AddAssign + Copy,
         N: Into<R> + Copy;
 
-    pub fn scale(&self, scalar: N) -> Self;
-    pub fn hadamard(&self, other: &Self) -> Self;
+    fn scale(&self, scalar: N) -> Self;
+    fn hadamard(&self, other: &Self) -> Self;
 }
 
 impl<N> VecOps<N> for ZeroSpVec<N> 

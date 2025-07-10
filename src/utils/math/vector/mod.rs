@@ -1,5 +1,4 @@
 pub mod math;
-pub mod math_normalized;
 pub mod serde;
 
 use std::{alloc::{alloc, dealloc, realloc, Layout}, fmt, marker::PhantomData, mem, ptr::{self, NonNull}};
@@ -22,31 +21,31 @@ where N: Num
     zero: N,
 }
 
-pub trait ZeroSpVecTrait<N>: Clone + Debug + Default + Index<usize, Output = N>
+pub trait ZeroSpVecTrait<N>: Clone + Default + Index<usize, Output = N>
 where N: Num
 {
-    pub fn ind_ptr(&self) -> *mut usize;
-    pub fn val_ptr(&self) -> *mut N;
-    pub fn raw_push(&mut self, index: usize, value: N);
-    pub fn ind_binary_search(&self, index: &usize) -> Result<usize, usize>;
-    pub fn new() -> Self;
-    pub fn with_capacity(cap: usize) -> Self;
-    pub fn reserve(&mut self, additional: usize);
-    pub fn shrink_to_fit(&mut self);
-    pub fn is_empty(&self) -> bool;
-    pub fn len(&self) -> usize;
-    pub fn capacity(&self) -> usize;
-    pub fn nnz(&self) -> usize;
-    pub fn add_dim(&mut self, dim: usize);
-    pub fn clear(&mut self);
-    pub fn push(&mut self, elem: N);
-    pub fn pop(&mut self) -> Option<N>;
-    pub fn get(&self, index: usize) -> Option<&N>;
-    pub fn get_ind(&self, index: usize) -> Option<usize>;
-    pub fn remove(&mut self, index: usize) -> N;
-    pub fn from_vec(vec: Vec<N>) -> Self;
-    pub fn iter(&self) -> ZeroSpVecIter<N>;
-    pub fn raw_iter(&self) -> ZeroSpVecRawIter<N>;
+    fn ind_ptr(&self) -> *mut usize;
+    fn val_ptr(&self) -> *mut N;
+    fn raw_push(&mut self, index: usize, value: N);
+    fn ind_binary_search(&self, index: &usize) -> Result<usize, usize>;
+    fn new() -> Self;
+    fn with_capacity(cap: usize) -> Self;
+    fn reserve(&mut self, additional: usize);
+    fn shrink_to_fit(&mut self);
+    fn is_empty(&self) -> bool;
+    fn len(&self) -> usize;
+    fn capacity(&self) -> usize;
+    fn nnz(&self) -> usize;
+    fn add_dim(&mut self, dim: usize);
+    fn clear(&mut self);
+    fn push(&mut self, elem: N);
+    fn pop(&mut self) -> Option<N>;
+    fn get(&self, index: usize) -> Option<&N>;
+    fn get_ind(&self, index: usize) -> Option<usize>;
+    fn remove(&mut self, index: usize) -> N;
+    fn from_vec(vec: Vec<N>) -> Self;
+    fn iter(&self) -> ZeroSpVecIter<N>;
+    fn raw_iter(&self) -> ZeroSpVecRawIter<N>;
 }
 
 impl<N> ZeroSpVecTrait<N> for ZeroSpVec<N> 
