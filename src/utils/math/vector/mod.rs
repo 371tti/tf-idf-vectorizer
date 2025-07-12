@@ -24,9 +24,9 @@ where N: Num
 pub trait ZeroSpVecTrait<N>: Clone + Default + Index<usize, Output = N>
 where N: Num
 {
-    fn ind_ptr(&self) -> *mut usize;
-    fn val_ptr(&self) -> *mut N;
-    fn raw_push(&mut self, index: usize, value: N);
+    unsafe fn ind_ptr(&self) -> *mut usize;
+    unsafe fn val_ptr(&self) -> *mut N;
+    unsafe fn raw_push(&mut self, index: usize, value: N);
     fn ind_binary_search(&self, index: &usize) -> Result<usize, usize>;
     fn new() -> Self;
     fn with_capacity(cap: usize) -> Self;
@@ -52,12 +52,12 @@ impl<N> ZeroSpVecTrait<N> for ZeroSpVec<N>
 where N: Num
 {
     #[inline]
-    fn ind_ptr(&self) -> *mut usize {
+    unsafe fn ind_ptr(&self) -> *mut usize {
         self.buf.ind_ptr.as_ptr()
     }
 
     #[inline]
-    fn val_ptr(&self) -> *mut N {
+    unsafe fn val_ptr(&self) -> *mut N {
         self.buf.val_ptr.as_ptr()
     }
 
@@ -68,7 +68,7 @@ where N: Num
     /// - `index` - 追加する要素のインデックス
     /// - `value` - 追加する要素の値
     #[inline]
-    fn raw_push(&mut self, index: usize, value: N) {
+    unsafe fn raw_push(&mut self, index: usize, value: N) {
         if self.nnz == self.buf.cap {
             self.buf.grow();
         }
@@ -454,7 +454,15 @@ where N: Num
             None
         }
     }
-    
+}
+
+impl<T> From<Vec<T>> for ZeroSpVec<T>
+where T: Num
+{
+    #[inline]
+    fn from(vec: Vec<T>) -> Self {
+        ZeroSpVec::from_vec(vec)
+    }
 }
 
 
