@@ -99,6 +99,8 @@ where
 
     /// CorpusからIDFを再計算する
     fn re_calc_idf(&mut self) {
+        self.idf.latest_entropy = self.corpus_ref.get_gen_num();
+        self.idf.doc_num = self.corpus_ref.get_doc_num();
         (self.idf.idf_vec, self.idf.denormalize_num) = E::idf_vec(&self.corpus_ref, &self.token_dim_sample)
     }
 }
@@ -110,8 +112,8 @@ where
 {
     pub fn add_doc(&mut self, doc_id: K, doc: &TokenFrequency) {
         let token_sum = doc.token_sum();
-        // コーパスにドキュメントを追加
-        self.corpus_ref.add_doc(&doc.token_set_ref_str());
+        // ドキュメントのトークンをコーパスに追加
+        self.add_corpus(doc);
         let mut token_set = doc.token_hashset();
         for token in self.token_dim_sample.iter() {
             token_set.remove(token);
@@ -119,13 +121,18 @@ where
         // 新しいトークンを追加
         self.token_dim_sample.extend(token_set.into_iter());
 
-        let tf_vec = E::tf_vec(doc, &self.token_dim_sample);
+        let (tf_vec, denormalize_num) = E::tf_vec(doc, &self.token_dim_sample);
         let doc = TFVector {
-            tf_vec: tf_vec.0,
+            tf_vec,
             token_sum,
-            denormalize_num: tf_vec.1,
+            denormalize_num,
             key: doc_id,
         };
         self.documents.push(doc);
+    }
+
+    fn add_corpus(&mut self, doc: &TokenFrequency) {
+        // コーパスにドキュメントを追加
+        self.corpus_ref.add_doc(&doc.token_set_ref_str());
     }
 }
