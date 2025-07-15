@@ -29,3 +29,5 @@ where
     /// IDF ZeroSpVecを返す。
     fn idf_vec(token_count: u64, doc_sum: u64) -> impl VecOps<N>;
 }
+
+
