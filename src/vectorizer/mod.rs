@@ -1,16 +1,18 @@
 pub mod corpus;
 pub mod tfidf;
 pub mod token;
+pub mod serde;
 
 
 use num::Num;
+use ::serde::{Deserialize, Serialize};
 
 use crate::{utils::math::vector::ZeroSpVec, vectorizer::{corpus::Corpus, tfidf::{DefaultTFIDFEngine, TFIDFEngine}, token::TokenFrequency}};
 
 #[derive(Debug)]
 pub struct TFIDFVectorizer<'a, N = f32, K = String, E = DefaultTFIDFEngine>
 where
-    N: Num,
+    N: Num + Copy,
     E: TFIDFEngine<N>,
 {
     /// ドキュメントのTFベクトル
@@ -24,9 +26,11 @@ where
     _marker: std::marker::PhantomData<E>,
 }
 
-#[derive(Debug)]
-pub struct TFVector<N, K> 
-where N: Num {
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TFVector<N, K>
+where
+    N: Num + Copy,
+{
     /// TFベクトル
     /// スパースベクトルを使用
     pub tf_vec: ZeroSpVec<N>,
@@ -38,9 +42,11 @@ where N: Num {
     pub key: K,
 }
 
-#[derive(Debug)]
-pub struct IDFVector<N> 
-where N: Num {
+#[derive(Debug, Serialize, Deserialize)]
+pub struct IDFVector<N>
+where
+    N: Num,
+{
     /// IDFベクトル 大体埋まってるのでスパースつかわん
     pub idf_vec: Vec<N>,
     /// 正規化解除のための数値
@@ -67,7 +73,7 @@ where
 
 impl <'a, N, K, E> TFIDFVectorizer<'a, N, K, E>
 where
-    N: Num,
+    N: Num + Copy,
     E: TFIDFEngine<N>,
 {
     /// Create a new TFIDFVectorizer instance
@@ -107,9 +113,11 @@ where
 
 impl <'a, N, K, E> TFIDFVectorizer<'a, N, K, E>
 where
-    N: Num,
+    N: Num + Copy,
     E: TFIDFEngine<N>,
 {
+    /// ドキュメントを追加します
+    /// 即時参照されているCorpusも更新されます
     pub fn add_doc(&mut self, doc_id: K, doc: &TokenFrequency) {
         let token_sum = doc.token_sum();
         // ドキュメントのトークンをコーパスに追加
@@ -131,6 +139,7 @@ where
         self.documents.push(doc);
     }
 
+    /// 参照されてるコーパスを更新
     fn add_corpus(&mut self, doc: &TokenFrequency) {
         // コーパスにドキュメントを追加
         self.corpus_ref.add_doc(&doc.token_set_ref_str());
