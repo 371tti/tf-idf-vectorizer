@@ -51,7 +51,7 @@ where
         vec.len = data.len;
         // entries を内部バッファに移す
         for (index, value) in data.entries {
-            vec.raw_push(index as usize, value);
+            unsafe { vec.raw_push(index as usize, value) };
         }
         Ok(vec)
     }
