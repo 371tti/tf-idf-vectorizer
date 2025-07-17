@@ -36,7 +36,7 @@ impl Corpus {
     }
 
     /// Add a document's tokens to the corpus
-    pub fn add_doc(&self, tokens: &[&str]) {
+    pub fn add_set(&self, tokens: &[&str]) {
         self.add_num.fetch_add(1, Ordering::Relaxed);
         for token in tokens {
             self.token_counts
@@ -46,7 +46,7 @@ impl Corpus {
         }
     }
 
-    pub fn remove_doc(&self, tokens: &[&str]) {
+    pub fn sub_set(&self, tokens: &[&str]) {
         self.sub_num.fetch_add(1, Ordering::Relaxed);
         for token in tokens {
             if let Some(mut count) = self.token_counts.get_mut(*token) {

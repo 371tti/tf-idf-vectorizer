@@ -2,6 +2,7 @@ pub mod corpus;
 pub mod tfidf;
 pub mod token;
 pub mod serde;
+pub mod search;
 
 use num::Num;
 use ::serde::{Deserialize, Serialize};
@@ -141,6 +142,6 @@ where
     /// 参照されてるコーパスを更新
     fn add_corpus(&mut self, doc: &TokenFrequency) {
         // コーパスにドキュメントを追加
-        self.corpus_ref.add_doc(&doc.token_set_ref_str());
+        self.corpus_ref.add_set(&doc.token_set_ref_str());
     }
 }
