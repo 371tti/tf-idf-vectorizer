@@ -3,7 +3,6 @@ pub mod tfidf;
 pub mod token;
 pub mod serde;
 
-
 use num::Num;
 use ::serde::{Deserialize, Serialize};
 
