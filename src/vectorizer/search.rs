@@ -20,6 +20,9 @@ where
     E: TFIDFEngine<N>,
 {
     pub fn search(&self, query: Query) -> Hits<K, N> {
-        
+        match query {
+            Query::Dot(tf) => SearchWorker::search_dot(self, tf),
+            Query::CosineSimilarity(tf) => SearchWorker::search_cosine(self, tf),
+        }
     }
 }

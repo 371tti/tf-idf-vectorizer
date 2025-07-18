@@ -30,13 +30,15 @@ where
     /// `corpus_ref`はコーパスの参照です。
     pub fn into_tf_idf_vectorizer<'a>(self, corpus_ref: &'a Corpus) -> TFIDFVectorizer<'a, N, K, E>
     {
-        TFIDFVectorizer {
+        let mut instance = TFIDFVectorizer {
             documents: self.documents,
             token_dim_sample: self.token_dim_sample,
             corpus_ref,
             idf: self.idf,
             _marker: std::marker::PhantomData,
-        }
+        };
+        instance.update_idf();
+        instance
     }
 }
 
