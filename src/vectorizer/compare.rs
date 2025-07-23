@@ -44,15 +44,35 @@ impl Compare<u16> for DefaultCompare {
         cos
     }
 
+    /// ?
     fn euclidean_distance(vec: impl Iterator<Item = u16>, other: impl Iterator<Item = u16>) -> f64 {
-        todo!()
+        vec.zip(other)
+            .map(|(a, b)| {
+                let diff = a as i32 - b as i32;
+                (diff * diff) as f64
+            })
+            .sum::<f64>()
+            .sqrt()
     }
 
+    /// ?
     fn manhattan_distance(vec: impl Iterator<Item = u16>, other: impl Iterator<Item = u16>) -> f64 {
-        todo!()
+        vec.zip(other)
+            .map(|(a, b)| {
+                let diff = a as i32 - b as i32;
+                diff.abs() as f64
+            })
+            .sum()
     }
 
+    /// ?
     fn chebyshev_distance(vec: impl Iterator<Item = u16>, other: impl Iterator<Item = u16>) -> f64 {
-        todo!()
+        vec.zip(other)
+            .map(|(a, b)| {
+                let diff = a as i32 - b as i32;
+                diff.abs() as f64
+            })
+            .max_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap_or(0.0)
     }
 }
