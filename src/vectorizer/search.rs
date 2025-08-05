@@ -26,3 +26,9 @@ where
         }
     }
 }
+
+pub struct SearchWorker;
+
+impl SearchWorker {
+    
+}
