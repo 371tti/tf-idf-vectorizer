@@ -46,7 +46,9 @@ where
         // クエリのtfidfを計算
         // それを使ってドキュメントのTFIDFとドット積を計算
         let tf = E::tf_vec(&freq, &self.token_dim_sample);
-        
+        let idf = E::idf_vec(self.corpus_ref, &self.token_dim_sample);
+
+
     }
 
     fn search_cosine(&self, tf: TokenFrequency) -> Vec<(K, f64)> {
