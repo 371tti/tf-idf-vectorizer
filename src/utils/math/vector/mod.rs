@@ -34,6 +34,7 @@ where N: Num
     fn shrink_to_fit(&mut self);
     fn is_empty(&self) -> bool;
     fn len(&self) -> usize;
+    fn len_mut(&mut self) -> &mut usize;
     fn capacity(&self) -> usize;
     fn nnz(&self) -> usize;
     fn add_dim(&mut self, dim: usize);
@@ -162,6 +163,11 @@ where N: Num
     #[inline]
     fn len(&self) -> usize {
         self.len
+    }
+
+    #[inline]
+    fn len_mut(&mut self) -> &mut usize {
+        &mut self.len
     }
 
     #[inline]

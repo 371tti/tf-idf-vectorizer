@@ -1,4 +1,3 @@
-
 use crate::{utils::math::vector::{ZeroSpVec, ZeroSpVecTrait}, vectorizer::{corpus::Corpus, token::TokenFrequency}};
 
 pub trait TFIDFEngine<N>
@@ -14,6 +13,7 @@ where
     /// * `denormalize_num` - 正規化解除のための数値
     fn idf_vec(corpus: &Corpus, token_dim_sample: &[String]) -> (Vec<N>, f64);
     fn tf_vec(freq: &TokenFrequency, token_dim_sample: &[String]) -> (ZeroSpVec<N>, f64);
+    fn tfidf_vec(tf: &(ZeroSpVec<N>, f64), idf: &(Vec<N>, f64)) -> ZeroSpVec<N>;
 }
 
 /// デフォルトのTF-IDFエンジン
@@ -47,6 +47,17 @@ impl TFIDFEngine<f32> for DefaultTFIDFEngine
         }
         (tf_vec, total_count.into())
     }
+
+    fn tfidf_vec(tf: &(ZeroSpVec<f32>, f64), idf: &(Vec<f32>, f64)) -> ZeroSpVec<f32> {
+        let mut tfidf_vec = ZeroSpVec::with_capacity(tf.0.nnz());
+        *tfidf_vec.len_mut() = tf.0.len().max(idf.0.len());
+        for (i, &value) in tf.0.raw_iter() {
+            unsafe {
+                tfidf_vec.raw_push(i, value * idf.0[i]);
+            }
+        }
+        tfidf_vec
+    }
 }
 
 impl TFIDFEngine<f64> for DefaultTFIDFEngine
@@ -69,6 +80,17 @@ impl TFIDFEngine<f64> for DefaultTFIDFEngine
             tf_vec.push(count / total_count);
         }
         (tf_vec, total_count.into())
+    }
+
+    fn tfidf_vec(tf: &(ZeroSpVec<f64>, f64), idf: &(Vec<f64>, f64)) -> ZeroSpVec<f64> {
+        let mut tfidf_vec = ZeroSpVec::with_capacity(tf.0.nnz());
+        *tfidf_vec.len_mut() = tf.0.len().max(idf.0.len());
+        for (i, &value) in tf.0.raw_iter() {
+            unsafe {
+                tfidf_vec.raw_push(i, value * idf.0[i]);
+            }
+        }
+        tfidf_vec
     }
 }
 
@@ -104,6 +126,20 @@ impl TFIDFEngine<u32> for DefaultTFIDFEngine
             ZeroSpVec::from(normalized_vec),
             total_count
         )
+    }
+
+    fn tfidf_vec(tf: &(ZeroSpVec<u32>, f64), idf: &(Vec<u32>, f64)) -> ZeroSpVec<u32> {
+        let mut tfidf_vec = ZeroSpVec::with_capacity(tf.0.nnz());
+        *tfidf_vec.len_mut() = tf.0.len().max(idf.0.len());
+        let max = u32::MAX as f64;
+        for (i, &value) in tf.0.raw_iter() {
+            let tfidf = (value as f64 / max) * (idf.0[i] as f64 / max);
+            let scaled = (tfidf * max).ceil() as u32;
+            unsafe {
+                tfidf_vec.raw_push(i, scaled);
+            }
+        }
+        tfidf_vec
     }
 }
 

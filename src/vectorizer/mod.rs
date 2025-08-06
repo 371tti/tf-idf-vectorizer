@@ -2,8 +2,8 @@ pub mod corpus;
 pub mod tfidf;
 pub mod token;
 pub mod serde;
-pub mod search;
-pub mod compare;
+pub mod compute;
+pub mod evaluate;
 
 use num::Num;
 use ::serde::{Deserialize, Serialize};
