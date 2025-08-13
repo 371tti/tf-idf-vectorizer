@@ -12,8 +12,24 @@ where
     /// * `Vec<N>` - IDFベクトル
     /// * `denormalize_num` - 正規化解除のための数値
     fn idf_vec(corpus: &Corpus, token_dim_sample: &[String]) -> (Vec<N>, f64);
+    /// TFベクトルを生成するメソッド
+    /// # Arguments
+    /// * `freq` - トークン頻度
+    /// * `token_dim_sample` - トークンの次元サンプル
+    /// # Returns
+    /// * `(ZeroSpVec<N>, f64)` - TFベクトルと正規化解除のための数値
     fn tf_vec(freq: &TokenFrequency, token_dim_sample: &[String]) -> (ZeroSpVec<N>, f64);
-    fn tfidf_vec(tf: &(ZeroSpVec<N>, f64), idf: &(Vec<N>, f64)) -> ZeroSpVec<N>;
+    /// TF-IDFを計算するイテレータ
+    /// # Arguments
+    /// * `tf` - TFベクトルのイテレータ
+    /// * `tf_denorm` - TFの正規化解除のための数値
+    /// * `idf` - IDFベクトルのイテレータ
+    /// * `idf_denorm` - IDFの正規化解除のための数値
+    /// # Returns
+    /// * `(impl Iterator<Item = N>, f64)` - TF-IDFのイテレータと正規化解除のための数値
+    /// 
+    /// tfidfのdenormは tf idf ともにmaxが 1.0 のはずなので tf_denorm * idf_denorm で計算できる(intでの計算くそめんどいやつ)
+    fn tfidf_iter_calc(tf: impl Iterator<Item = N>, tf_denorm: f64, idf: impl Iterator<Item = N>, idf_denorm: f64) -> (impl Iterator<Item = N>, f64);
 }
 
 /// デフォルトのTF-IDFエンジン
@@ -48,15 +64,12 @@ impl TFIDFEngine<f32> for DefaultTFIDFEngine
         (tf_vec, total_count.into())
     }
 
-    fn tfidf_vec(tf: &(ZeroSpVec<f32>, f64), idf: &(Vec<f32>, f64)) -> ZeroSpVec<f32> {
-        let mut tfidf_vec = ZeroSpVec::with_capacity(tf.0.nnz());
-        *tfidf_vec.len_mut() = tf.0.len().max(idf.0.len());
-        for (i, &value) in tf.0.raw_iter() {
-            unsafe {
-                tfidf_vec.raw_push(i, value * idf.0[i]);
-            }
-        }
-        tfidf_vec
+    fn tfidf_iter_calc(tf: impl Iterator<Item = f32>, tf_denorm: f64, idf: impl Iterator<Item = f32>, idf_denorm: f64) -> (impl Iterator<Item = f32>, f64) {
+        let tfidf = tf.zip(idf).map(move |(tf_val, idf_val)| {
+            let tfidf = tf_val * idf_val;
+            tfidf
+        });
+        (tfidf, tf_denorm * idf_denorm)
     }
 }
 
@@ -82,15 +95,12 @@ impl TFIDFEngine<f64> for DefaultTFIDFEngine
         (tf_vec, total_count.into())
     }
 
-    fn tfidf_vec(tf: &(ZeroSpVec<f64>, f64), idf: &(Vec<f64>, f64)) -> ZeroSpVec<f64> {
-        let mut tfidf_vec = ZeroSpVec::with_capacity(tf.0.nnz());
-        *tfidf_vec.len_mut() = tf.0.len().max(idf.0.len());
-        for (i, &value) in tf.0.raw_iter() {
-            unsafe {
-                tfidf_vec.raw_push(i, value * idf.0[i]);
-            }
-        }
-        tfidf_vec
+    fn tfidf_iter_calc(tf: impl Iterator<Item = f64>, tf_denorm: f64, idf: impl Iterator<Item = f64>, idf_denorm: f64) -> (impl Iterator<Item = f64>, f64) {
+        let tfidf = tf.zip(idf).map(move |(tf_val, idf_val)| {
+            let tfidf = tf_val * idf_val;
+            tfidf
+        });
+        (tfidf, tf_denorm * idf_denorm)
     }
 }
 
@@ -128,18 +138,19 @@ impl TFIDFEngine<u32> for DefaultTFIDFEngine
         )
     }
 
-    fn tfidf_vec(tf: &(ZeroSpVec<u32>, f64), idf: &(Vec<u32>, f64)) -> ZeroSpVec<u32> {
-        let mut tfidf_vec = ZeroSpVec::with_capacity(tf.0.nnz());
-        *tfidf_vec.len_mut() = tf.0.len().max(idf.0.len());
-        let max = u32::MAX as f64;
-        for (i, &value) in tf.0.raw_iter() {
-            let tfidf = (value as f64 / max) * (idf.0[i] as f64 / max);
-            let scaled = (tfidf * max).ceil() as u32;
-            unsafe {
-                tfidf_vec.raw_push(i, scaled);
-            }
-        }
-        tfidf_vec
+    fn tfidf_iter_calc(tf: impl Iterator<Item = u32>, tf_denorm: f64, idf: impl Iterator<Item = u32>, idf_denorm: f64) -> (impl Iterator<Item = u32>, f64) {
+        // denormのコストを考える
+        // (tf_val / u32::MAX) * tf_denorm 
+        // 除算遅いから
+        // const base = 1 / u32::MAX as f64;
+        // (tf_val * base) * tf_denorm
+        // で計算する
+        
+        let tfidf = tf.zip(idf).map(move |(tf_val, idf_val)| {
+            let tfidf = (tf_val as f64 / tf_denorm) * (idf_val as f64 / idf_denorm);
+            tfidf as u32
+        });
+
     }
 }
 
