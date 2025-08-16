@@ -2,7 +2,7 @@ use crate::{utils::math::vector::{ZeroSpVec, ZeroSpVecTrait}, vectorizer::{corpu
 
 pub trait TFIDFEngine<N>
 where
-    N: num::Num,
+    N: num::Num + Copy,
 {
     /// IDFベクトルを生成するメソッド
     /// # Arguments
@@ -145,12 +145,19 @@ impl TFIDFEngine<u32> for DefaultTFIDFEngine
         // const base = 1 / u32::MAX as f64;
         // (tf_val * base) * tf_denorm
         // で計算する
-        
+        // 合計5回の乗算
+        // を const val = base * tf_denorm * base * idf_denorm
+        // で (tf * idf * val)
+        // でf64 生の値が出る
+        // を0-1に正規化 楽観的なmaxとしてtf_denorm * idf_denorm
+        // tf * idf * (1 / u32::MAX) * (1 / u32::MAX) * tf_denorm * idf_denorm / (tf_denorm * idf_denorm) * u32::MAX 
+        // tf * idf * (1 / u32::MAX)
+        // done
         let tfidf = tf.zip(idf).map(move |(tf_val, idf_val)| {
-            let tfidf = (tf_val as f64 / tf_denorm) * (idf_val as f64 / idf_denorm);
+            let tfidf = (tf_val as u64 * idf_val as u64) / u32::MAX as u64;
             tfidf as u32
         });
-
+        (tfidf, tf_denorm * idf_denorm)
     }
 }
 
@@ -198,6 +205,14 @@ impl TFIDFEngine<u16> for DefaultTFIDFEngine
             total_count
         )
     }
+
+    fn tfidf_iter_calc(tf: impl Iterator<Item = u16>, tf_denorm: f64, idf: impl Iterator<Item = u16>, idf_denorm: f64) -> (impl Iterator<Item = u16>, f64) {
+        let tfidf = tf.zip(idf).map(move |(tf_val, idf_val)| {
+            let tfidf = (tf_val as u32 * idf_val as u32) / u16::MAX as u32;
+            tfidf as u16
+        });
+        (tfidf, tf_denorm * idf_denorm)
+    }
 }
 
 impl TFIDFEngine<u8> for DefaultTFIDFEngine
@@ -243,6 +258,14 @@ impl TFIDFEngine<u8> for DefaultTFIDFEngine
             ZeroSpVec::from(normalized_vec),
             total_count
         )
+    }
+
+    fn tfidf_iter_calc(tf: impl Iterator<Item = u8>, tf_denorm: f64, idf: impl Iterator<Item = u8>, idf_denorm: f64) -> (impl Iterator<Item = u8>, f64) {
+        let tfidf = tf.zip(idf).map(move |(tf_val, idf_val)| {
+            let tfidf = (tf_val as u32 * idf_val as u32) / u8::MAX as u32;
+            tfidf as u8
+        });
+        (tfidf, tf_denorm * idf_denorm)
     }
 }
 

@@ -8,13 +8,14 @@ pub mod evaluate;
 use num::Num;
 use ::serde::{Deserialize, Serialize};
 
-use crate::{utils::math::vector::ZeroSpVec, vectorizer::{corpus::Corpus, tfidf::{DefaultTFIDFEngine, TFIDFEngine}, token::TokenFrequency}};
+use crate::{utils::math::vector::ZeroSpVec, vectorizer::{compute::compare::{Compare, DefaultCompare}, corpus::Corpus, tfidf::{DefaultTFIDFEngine, TFIDFEngine}, token::TokenFrequency}};
 
 #[derive(Debug)]
-pub struct TFIDFVectorizer<'a, N = f32, K = String, E = DefaultTFIDFEngine>
+pub struct TFIDFVectorizer<'a, N = f32, K = String, E = DefaultTFIDFEngine, C = DefaultCompare>
 where
     N: Num + Copy,
     E: TFIDFEngine<N>,
+    C: Compare<N>,
 {
     /// ドキュメントのTFベクトル
     pub documents: Vec<TFVector<N, K>>,
@@ -25,6 +26,7 @@ where
     /// IDFベクトル
     pub idf: IDFVector<N>,
     _marker: std::marker::PhantomData<E>,
+    _compare_marker: std::marker::PhantomData<C>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -72,10 +74,11 @@ where
     }
 }
 
-impl <'a, N, K, E> TFIDFVectorizer<'a, N, K, E>
+impl <'a, N, K, E, C> TFIDFVectorizer<'a, N, K, E, C>
 where
     N: Num + Copy,
     E: TFIDFEngine<N>,
+    C: Compare<N>,
 {
     /// Create a new TFIDFVectorizer instance
     pub fn new(corpus_ref: &'a Corpus) -> Self {
@@ -85,6 +88,7 @@ where
             corpus_ref,
             idf: IDFVector::new(),
             _marker: std::marker::PhantomData,
+            _compare_marker: std::marker::PhantomData,
         };
         instance.re_calc_idf();
         instance
@@ -112,10 +116,11 @@ where
     }
 }
 
-impl <'a, N, K, E> TFIDFVectorizer<'a, N, K, E>
+impl <'a, N, K, E, C> TFIDFVectorizer<'a, N, K, E, C>
 where
     N: Num + Copy,
     E: TFIDFEngine<N>,
+    C: Compare<N>,
 {
     /// ドキュメントを追加します
     /// 即時参照されているCorpusも更新されます

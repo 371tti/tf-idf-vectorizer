@@ -22,6 +22,7 @@ where
     fn chebyshev_distance(vec: impl Iterator<Item = N>, other: impl Iterator<Item = N>) -> f64;
 }
 
+#[derive(Debug)]
 pub struct DefaultCompare;
 
 impl Compare<u8> for DefaultCompare {
