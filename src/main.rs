@@ -42,7 +42,7 @@ fn detect_sudachi_cmd() -> String {
     "sudachi".to_string()
 }
 
-fn load_documents<P: AsRef<Path>>(dir: P, cmd: &str, _corpus: &Corpus, vectorizer: &mut TFIDFVectorizer<f32>) -> io::Result<usize> {
+fn load_documents<P: AsRef<Path>>(dir: P, cmd: &str, _corpus: &Corpus, vectorizer: &mut TFIDFVectorizer<u16>) -> io::Result<usize> {
     let mut count = 0usize;
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
@@ -106,7 +106,7 @@ fn main() {
 
     // ---- 文書ロード ----
     let corpus = Corpus::new();
-    let mut vectorizer: TFIDFVectorizer<f32> = TFIDFVectorizer::new(&corpus);
+    let mut vectorizer: TFIDFVectorizer<u16> = TFIDFVectorizer::new(&corpus);
     let load_start = Instant::now();
     match load_documents(&docs_dir, &sudachi_cmd, &corpus, &mut vectorizer) {
         Ok(n) => eprintln!("[info] loaded {} documents from {}", n, docs_dir),
@@ -139,7 +139,7 @@ fn print_usage() {
     eprintln!("If --query omitted, stdin is read. Output format: <score>\t<doc_key>");
 }
 
-fn run_single_query(sudachi_cmd: &str, vectorizer: &mut TFIDFVectorizer<f32>, query_text: String) {
+fn run_single_query(sudachi_cmd: &str, vectorizer: &mut TFIDFVectorizer<u16>, query_text: String) {
     let q = query_text.trim();
     if q.is_empty() { eprintln!("[error] empty query"); return; }
     let t0 = Instant::now();
@@ -166,7 +166,7 @@ fn run_single_query(sudachi_cmd: &str, vectorizer: &mut TFIDFVectorizer<f32>, qu
     for (key, score) in results.list.iter() { println!("{}\t{}", score, key); }
 }
 
-fn run_interactive(sudachi_cmd: &str, vectorizer: &mut TFIDFVectorizer<f32>) {
+fn run_interactive(sudachi_cmd: &str, vectorizer: &mut TFIDFVectorizer<u16>) {
     use std::io::{self, Write};
     let stdin = io::stdin();
     let mut stdout = io::stdout();

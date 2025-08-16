@@ -27,8 +27,11 @@ pub struct DefaultCompare;
 
 impl Compare<u8> for DefaultCompare {
     fn dot(vec: impl Iterator<Item = u8>, other: impl Iterator<Item = u8>) -> f64 {
+        // NOTE: 元は u32::MAX で割っていたため常に 0 になり比較不能だった。
+        // u8 の量子化レンジに合わせ u8::MAX を使用。
+        let max = u8::MAX as u32;
         vec.zip(other)
-            .map(|(a, b)| ((a as u32 * b as u32 + u32::MAX - 1) / u32::MAX) as f64)
+            .map(|(a, b)| ((a as u32 * b as u32 + max - 1) / max) as f64)
             .sum()
     }
 
@@ -36,10 +39,11 @@ impl Compare<u8> for DefaultCompare {
         let mut vec_dot = 0_f64;
         let mut other_dot = 0_f64;
         let mut dot = 0_f64;
+        let max = u8::MAX as u32;
         for (a, b) in vec.zip(other) {
-            vec_dot += ((a as u32 * a as u32 + u32::MAX - 1) / u32::MAX) as f64;
-            other_dot += ((b as u32 * b as u32 + u32::MAX - 1) / u32::MAX) as f64;
-            dot += ((a as u32 * b as u32 + u32::MAX - 1) / u32::MAX) as f64;
+            vec_dot += ((a as u32 * a as u32 + max - 1) / max) as f64;
+            other_dot += ((b as u32 * b as u32 + max - 1) / max) as f64;
+            dot += ((a as u32 * b as u32 + max - 1) / max) as f64;
         }
         dot / (vec_dot.sqrt() * other_dot.sqrt())
     }
@@ -76,8 +80,10 @@ impl Compare<u8> for DefaultCompare {
 
 impl Compare<u16> for DefaultCompare {
     fn dot(vec: impl Iterator<Item = u16>, other: impl Iterator<Item = u16>) -> f64 {
+        // u16 でも正しいスケール (u16::MAX) を使用。
+        let max = u16::MAX as u32;
         vec.zip(other)
-            .map(|(a, b)| ((a as u32 * b as u32 + u32::MAX - 1) / u32::MAX) as f64)
+            .map(|(a, b)| ((a as u32 * b as u32 + max - 1) / max) as f64)
             .sum()
     }
 
@@ -85,13 +91,13 @@ impl Compare<u16> for DefaultCompare {
         let mut vec_dot = 0_f64;
         let mut other_dot = 0_f64;
         let mut dot = 0_f64;
+        let max = u16::MAX as u32;
         for (a, b) in vec.zip(other) {
-            vec_dot += ((a as u32 * a as u32 + u32::MAX - 1) / u32::MAX) as f64;
-            other_dot += ((b as u32 * b as u32 + u32::MAX - 1) / u32::MAX) as f64;
-            dot += ((a as u32 * b as u32 + u32::MAX - 1) / u32::MAX) as f64;
+            vec_dot += ((a as u32 * a as u32 + max - 1) / max) as f64;
+            other_dot += ((b as u32 * b as u32 + max - 1) / max) as f64;
+            dot += ((a as u32 * b as u32 + max - 1) / max) as f64;
         }
-        let cos = dot / (vec_dot.sqrt() * other_dot.sqrt());
-        cos
+        dot / (vec_dot.sqrt() * other_dot.sqrt())
     }
 
     /// ?
@@ -129,8 +135,13 @@ impl Compare<u16> for DefaultCompare {
 
 impl Compare<u32> for DefaultCompare {
     fn dot(vec: impl Iterator<Item = u32>, other: impl Iterator<Item = u32>) -> f64 {
+        // u32 の a*b は 64bit を超える可能性があるので u128 で計算。
+        let max = u32::MAX as u128;
         vec.zip(other)
-            .map(|(a, b)| ((a * b + u32::MAX - 1) / u32::MAX) as f64)
+            .map(|(a, b)| {
+                let prod = a as u128 * b as u128;
+                ((prod + max - 1) / max) as f64
+            })
             .sum()
     }
 
@@ -138,10 +149,14 @@ impl Compare<u32> for DefaultCompare {
         let mut vec_dot = 0_f64;
         let mut other_dot = 0_f64;
         let mut dot = 0_f64;
+        let max = u32::MAX as u128;
         for (a, b) in vec.zip(other) {
-            vec_dot += ((a * a + u32::MAX - 1) / u32::MAX) as f64;
-            other_dot += ((b * b + u32::MAX - 1) / u32::MAX) as f64;
-            dot += ((a * b + u32::MAX - 1) / u32::MAX) as f64;
+            let aa = a as u128 * a as u128;
+            let bb = b as u128 * b as u128;
+            let ab = a as u128 * b as u128;
+            vec_dot += ((aa + max - 1) / max) as f64;
+            other_dot += ((bb + max - 1) / max) as f64;
+            dot += ((ab + max - 1) / max) as f64;
         }
         dot / (vec_dot.sqrt() * other_dot.sqrt())
     }
