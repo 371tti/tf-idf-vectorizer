@@ -1,4 +1,4 @@
-use num::Num;
+use num::{traits::MulAdd, Num};
 
 pub trait Compare<N>
 where
@@ -31,7 +31,7 @@ impl Compare<u8> for DefaultCompare {
         // u8 の量子化レンジに合わせ u8::MAX を使用。
         let max = u8::MAX as u32;
         vec.zip(other)
-            .map(|(a, b)| ((a as u32 * b as u32 + max - 1) / max) as f64)
+            .map(|(a, b)| (( (a as u32).mul_add(b as u32, max - 1) ) / max) as f64)
             .sum()
     }
 
@@ -41,9 +41,9 @@ impl Compare<u8> for DefaultCompare {
         let mut dot = 0_f64;
         let max = u8::MAX as u32;
         for (a, b) in vec.zip(other) {
-            vec_dot += ((a as u32 * a as u32 + max - 1) / max) as f64;
-            other_dot += ((b as u32 * b as u32 + max - 1) / max) as f64;
-            dot += ((a as u32 * b as u32 + max - 1) / max) as f64;
+            vec_dot += (( (a as u32).mul_add(a as u32, max - 1) ) / max) as f64;
+            other_dot += (( (b as u32).mul_add(b as u32, max - 1) ) / max) as f64;
+            dot += (( (a as u32).mul_add(b as u32, max - 1) ) / max) as f64;
         }
         dot / (vec_dot.sqrt() * other_dot.sqrt())
     }
@@ -83,7 +83,7 @@ impl Compare<u16> for DefaultCompare {
         // u16 でも正しいスケール (u16::MAX) を使用。
         let max = u16::MAX as u32;
         vec.zip(other)
-            .map(|(a, b)| ((a as u32 * b as u32 + max - 1) / max) as f64)
+            .map(|(a, b)| (( (a as u32).mul_add(b as u32, max - 1) ) / max) as f64)
             .sum()
     }
 
@@ -93,9 +93,9 @@ impl Compare<u16> for DefaultCompare {
         let mut dot = 0_f64;
         let max = u16::MAX as u32;
         for (a, b) in vec.zip(other) {
-            vec_dot += ((a as u32 * a as u32 + max - 1) / max) as f64;
-            other_dot += ((b as u32 * b as u32 + max - 1) / max) as f64;
-            dot += ((a as u32 * b as u32 + max - 1) / max) as f64;
+            vec_dot += (((a as u32).mul_add(a as u32, max - 1)) / max) as f64;
+            other_dot += (((b as u32).mul_add(b as u32, max - 1)) / max) as f64;
+            dot += (((a as u32).mul_add(b as u32, max - 1)) / max) as f64;
         }
         dot / (vec_dot.sqrt() * other_dot.sqrt())
     }
@@ -139,8 +139,8 @@ impl Compare<u32> for DefaultCompare {
         let max = u32::MAX as u128;
         vec.zip(other)
             .map(|(a, b)| {
-                let prod = a as u128 * b as u128;
-                ((prod + max - 1) / max) as f64
+                let prod = (a as u128).mul_add(b as u128, max - 1);
+                (prod / max) as f64
             })
             .sum()
     }
@@ -151,12 +151,12 @@ impl Compare<u32> for DefaultCompare {
         let mut dot = 0_f64;
         let max = u32::MAX as u128;
         for (a, b) in vec.zip(other) {
-            let aa = a as u128 * a as u128;
-            let bb = b as u128 * b as u128;
-            let ab = a as u128 * b as u128;
-            vec_dot += ((aa + max - 1) / max) as f64;
-            other_dot += ((bb + max - 1) / max) as f64;
-            dot += ((ab + max - 1) / max) as f64;
+            let aa = (a as u128).mul_add(a as u128, max - 1);
+            let bb = (b as u128).mul_add(b as u128, max - 1);
+            let ab = (a as u128).mul_add(b as u128, max - 1);
+            vec_dot += (aa / max) as f64;
+            other_dot += (bb / max) as f64;
+            dot += (ab / max) as f64;
         }
         dot / (vec_dot.sqrt() * other_dot.sqrt())
     }
@@ -193,44 +193,50 @@ impl Compare<u32> for DefaultCompare {
 
 impl Compare<f32> for DefaultCompare {
     fn dot(vec: impl Iterator<Item = f32>, other: impl Iterator<Item = f32>) -> f64 {
-        vec.zip(other)
-            .map(|(a, b)| (a * b) as f64)
-            .sum()
+        let mut acc: f32 = 0.0;
+        for (a, b) in vec.zip(other) {
+            acc += a * b; // f32 のまま蓄積
+        }
+        acc as f64
     }
 
     fn cosine_similarity(vec: impl Iterator<Item = f32>, other: impl Iterator<Item = f32>) -> f64 {
-        let mut vec_dot = 0_f64;
-        let mut other_dot = 0_f64;
-        let mut dot = 0_f64;
+        let mut sum_a2: f32 = 0.0;
+        let mut sum_b2: f32 = 0.0;
+        let mut sum_ab: f32 = 0.0;
         for (a, b) in vec.zip(other) {
-            vec_dot += (a * a) as f64;
-            other_dot += (b * b) as f64;
-            dot += (a * b) as f64;
+            sum_a2 += a * a;
+            sum_b2 += b * b;
+            sum_ab += a * b;
         }
-        dot / (vec_dot.sqrt() * other_dot.sqrt())
+        if sum_a2 == 0.0 || sum_b2 == 0.0 { return 0.0; }
+        (sum_ab as f64) / ((sum_a2.sqrt() * sum_b2.sqrt()) as f64)
     }
 
     fn chebyshev_distance(vec: impl Iterator<Item = f32>, other: impl Iterator<Item = f32>) -> f64 {
-        vec.zip(other)
-            .map(|(a, b)| (a - b).abs() as f64)
-            .max_by(|a, b| a.partial_cmp(b).unwrap())
-            .unwrap_or(0.0)
+        let mut maxd: f32 = 0.0;
+        for (a, b) in vec.zip(other) {
+            let d = (a - b).abs();
+            if d > maxd { maxd = d; }
+        }
+        maxd as f64
     }
 
     fn euclidean_distance(vec: impl Iterator<Item = f32>, other: impl Iterator<Item = f32>) -> f64 {
-        vec.zip(other)
-            .map(|(a, b)| {
-                let diff = a - b;
-                (diff * diff) as f64
-            })
-            .sum::<f64>()
-            .sqrt()
+        let mut acc: f32 = 0.0;
+        for (a, b) in vec.zip(other) {
+            let d = a - b;
+            acc += d * d;
+        }
+        (acc.sqrt()) as f64
     }
 
     fn manhattan_distance(vec: impl Iterator<Item = f32>, other: impl Iterator<Item = f32>) -> f64 {
-        vec.zip(other)
-            .map(|(a, b)| (a - b).abs() as f64)
-            .sum()
+        let mut acc: f32 = 0.0;
+        for (a, b) in vec.zip(other) {
+            acc += (a - b).abs();
+        }
+        acc as f64
     }
 }
 

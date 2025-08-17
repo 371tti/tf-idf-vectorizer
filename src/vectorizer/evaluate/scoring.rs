@@ -6,10 +6,23 @@ use crate::{utils::math::vector::ZeroSpVecTrait, vectorizer::{compute::compare::
 
 /// 検索クエリの種類を定義する列挙型
 pub enum SimilarityQuery {
+    /// 内積
+    /// 向きと大きさを考慮した類似度
     Dot(TokenFrequency),
+    /// コサイン類似度
+    /// 向きのみを考慮した類似度
     CosineSimilarity(TokenFrequency),
+    /// ユークリッド距離
+    /// ベクトル空間上での直線距離を用いた類似度評価
+    /// トークン頻度ベクトル間の距離を計算して、文書間の類似度を測定する
     EuclideanDistance(TokenFrequency),
+    /// マンハッタン距離
+    /// 各次元の差の絶対値の総和を用いた類似度評価
+    /// トークン頻度ベクトル間の距離を計算して、文書間の類似度を測定する
     ManhattanDistance(TokenFrequency),
+    /// チェビシェフ距離
+    /// 各次元の差の最大値を用いた類似度評価
+    /// トークン頻度ベクトル間の距離を計算して、文書間の類似度を測定する
     ChebyshevDistance(TokenFrequency),
 }
 
@@ -29,6 +42,13 @@ impl<K> Hits<K> {
     self.list.retain(|(_, s)| !s.is_nan());
     // total_cmp で反射律/推移律を満たす全順序 (NaN 排除済みなので安全)
     self.list.sort_by(|a, b| b.1.total_cmp(&a.1));
+    }
+
+    pub fn sort_by_score_rev(&mut self) {
+        // NaN を除外 (必要なら末尾へ送る運用も可)
+        self.list.retain(|(_, s)| !s.is_nan());
+        // total_cmp で反射律/推移律を満たす全順序 (NaN 排除済みなので安全)
+        self.list.sort_by(|a, b| a.1.total_cmp(&b.1));
     }
 }
 

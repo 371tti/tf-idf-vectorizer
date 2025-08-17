@@ -34,7 +34,8 @@ where
     {
         let mut instance = TFIDFVectorizer {
             documents: self.documents,
-            token_dim_sample: self.token_dim_sample,
+            token_dim_sample: self.token_dim_sample.clone(),
+            token_dim_set: self.token_dim_sample.iter().cloned().collect(),
             corpus_ref,
             idf: self.idf,
             _marker: std::marker::PhantomData,

@@ -9,6 +9,7 @@ use num::Num;
 use ::serde::{Deserialize, Serialize};
 
 use crate::{utils::math::vector::ZeroSpVec, vectorizer::{compute::compare::{Compare, DefaultCompare}, corpus::Corpus, tfidf::{DefaultTFIDFEngine, TFIDFEngine}, token::TokenFrequency}};
+use std::collections::HashSet;
 
 #[derive(Debug)]
 pub struct TFIDFVectorizer<'a, N = f32, K = String, E = DefaultTFIDFEngine, C = DefaultCompare>
@@ -21,6 +22,8 @@ where
     pub documents: Vec<TFVector<N, K>>,
     /// TFベクトルのトークンの次元サンプル
     pub token_dim_sample: Vec<String>,
+    /// 高速存在判定用の語彙セット (token_dim_sample と常に同期)
+    pub token_dim_set: HashSet<String>,
     /// コーパスの参照
     pub corpus_ref: &'a Corpus,
     /// IDFベクトル
@@ -85,6 +88,7 @@ where
         let mut instance = Self {
             documents: Vec::new(),
             token_dim_sample: Vec::new(),
+            token_dim_set: HashSet::new(),
             corpus_ref,
             idf: IDFVector::new(),
             _marker: std::marker::PhantomData,
@@ -128,12 +132,13 @@ where
         let token_sum = doc.token_sum();
         // ドキュメントのトークンをコーパスに追加
         self.add_corpus(doc);
-        let mut token_set = doc.token_hashset();
-        for token in self.token_dim_sample.iter() {
-            token_set.remove(token);
+        // 新語彙を差分追加 (O(|doc_vocab|))
+        for tok in doc.token_set_ref_str() {
+            if !self.token_dim_set.contains(tok) {
+                self.token_dim_sample.push(tok.to_string());
+                self.token_dim_set.insert(tok.to_string());
+            }
         }
-        // 新しいトークンを追加
-        self.token_dim_sample.extend(token_set.into_iter());
 
         let (tf_vec, denormalize_num) = E::tf_vec(doc, &self.token_dim_sample);
         let doc = TFVector {
