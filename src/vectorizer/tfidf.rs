@@ -30,6 +30,7 @@ where
     /// 
     /// tfidfのdenormは tf idf ともにmaxが 1.0 のはずなので tf_denorm * idf_denorm で計算できる(intでの計算くそめんどいやつ)
     fn tfidf_iter_calc(tf: impl Iterator<Item = N>, tf_denorm: f64, idf: impl Iterator<Item = N>, idf_denorm: f64) -> (impl Iterator<Item = N>, f64);
+    fn tfidf_iter_calc_sparse(tf: impl Iterator<Item = (usize, N)>, tf_denorm: f64, idf: &Vec<N>, idf_denorm: f64) -> (impl Iterator<Item = (usize, N)>, f64);
 }
 
 /// デフォルトのTF-IDFエンジン
@@ -71,6 +72,14 @@ impl TFIDFEngine<f32> for DefaultTFIDFEngine
         });
         (tfidf, tf_denorm * idf_denorm)
     }
+
+    fn tfidf_iter_calc_sparse(tf: impl Iterator<Item = (usize, f32)>, tf_denorm: f64, idf: &Vec<f32>, idf_denorm: f64) -> (impl Iterator<Item = (usize, f32)>, f64) {
+        let tfidf = tf.map(move |(idx, tf_val)| {
+            let idf_val = idf.get(idx).copied().unwrap_or(0.0);
+            (idx, tf_val * idf_val)
+        });
+        (tfidf, tf_denorm * idf_denorm)
+    }
 }
 
 impl TFIDFEngine<f64> for DefaultTFIDFEngine
@@ -99,6 +108,14 @@ impl TFIDFEngine<f64> for DefaultTFIDFEngine
         let tfidf = tf.zip(idf).map(move |(tf_val, idf_val)| {
             let tfidf = tf_val * idf_val;
             tfidf
+        });
+        (tfidf, tf_denorm * idf_denorm)
+    }
+
+    fn tfidf_iter_calc_sparse(tf: impl Iterator<Item = (usize, f64)>, tf_denorm: f64, idf: &Vec<f64>, idf_denorm: f64) -> (impl Iterator<Item = (usize, f64)>, f64) {
+        let tfidf = tf.map(move |(idx, tf_val)| {
+            let idf_val = idf.get(idx).copied().unwrap_or(0.0);
+            (idx, tf_val * idf_val)
         });
         (tfidf, tf_denorm * idf_denorm)
     }
@@ -159,6 +176,15 @@ impl TFIDFEngine<u32> for DefaultTFIDFEngine
         });
         (tfidf, tf_denorm * idf_denorm)
     }
+
+    fn tfidf_iter_calc_sparse(tf: impl Iterator<Item = (usize, u32)>, tf_denorm: f64, idf: &Vec<u32>, idf_denorm: f64) -> (impl Iterator<Item = (usize, u32)>, f64) {
+        let tfidf = tf.map(move |(idx, tf_val)| {
+            let idf_val = *idf.get(idx).unwrap_or(&0);
+            let v = (tf_val as u64 * idf_val as u64 / u32::MAX as u64) as u32;
+            (idx, v)
+        });
+        (tfidf, tf_denorm * idf_denorm)
+    }
 }
 
 impl TFIDFEngine<u16> for DefaultTFIDFEngine
@@ -213,6 +239,15 @@ impl TFIDFEngine<u16> for DefaultTFIDFEngine
         });
         (tfidf, tf_denorm * idf_denorm)
     }
+
+    fn tfidf_iter_calc_sparse(tf: impl Iterator<Item = (usize, u16)>, tf_denorm: f64, idf: &Vec<u16>, idf_denorm: f64) -> (impl Iterator<Item = (usize, u16)>, f64) {
+        let tfidf = tf.map(move |(idx, tf_val)| {
+            let idf_val = *idf.get(idx).unwrap_or(&0);
+            let v = (tf_val as u32 * idf_val as u32 / u16::MAX as u32) as u16;
+            (idx, v)
+        });
+        (tfidf, tf_denorm * idf_denorm)
+    }
 }
 
 impl TFIDFEngine<u8> for DefaultTFIDFEngine
@@ -264,6 +299,15 @@ impl TFIDFEngine<u8> for DefaultTFIDFEngine
         let tfidf = tf.zip(idf).map(move |(tf_val, idf_val)| {
             let tfidf = (tf_val as u32 * idf_val as u32) / u8::MAX as u32;
             tfidf as u8
+        });
+        (tfidf, tf_denorm * idf_denorm)
+    }
+
+    fn tfidf_iter_calc_sparse(tf: impl Iterator<Item = (usize, u8)>, tf_denorm: f64, idf: &Vec<u8>, idf_denorm: f64) -> (impl Iterator<Item = (usize, u8)>, f64) {
+        let tfidf = tf.map(move |(idx, tf_val)| {
+            let idf_val = *idf.get(idx).unwrap_or(&0);
+            let v = (tf_val as u32 * idf_val as u32 / u8::MAX as u32) as u8;
+            (idx, v)
         });
         (tfidf, tf_denorm * idf_denorm)
     }

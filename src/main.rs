@@ -1,4 +1,5 @@
 use std::{env, fs, io, path::Path, process::{Command, Stdio}, time::Instant};
+use std::sync::atomic::{AtomicBool, Ordering};
 use rayon::prelude::*;
 use tf_idf_vectorizer::vectorizer::{corpus::Corpus, evaluate::scoring::SimilarityQuery, token::TokenFrequency, TFIDFVectorizer};
 
@@ -6,13 +7,27 @@ use tf_idf_vectorizer::vectorizer::{corpus::Corpus, evaluate::scoring::Similarit
 // 実際の CLI 実装内部バッファに安全マージンをとり 40KB とする
 const SUDACHI_CHUNK_BYTE_LIMIT: usize = 40_000;
 
+// Sudachi が存在しない場合のフォールバックフラグ (一度失敗したら以降 spawn を試さない)
+static SUDACHI_FALLBACK: AtomicBool = AtomicBool::new(false);
+
 // 外部コマンド (Sudachi) を 1 回だけ実行して text をトークン化
 fn sudachi_tokenize_once(cmd: &str, text: &str) -> io::Result<Vec<String>> {
-    let mut child = Command::new(cmd)
+    if SUDACHI_FALLBACK.load(Ordering::Relaxed) {
+        return Ok(text.split_whitespace().map(|s| s.to_string()).collect());
+    }
+    // Sudachi コマンド起動。存在しない/起動失敗時はフォールバックして空白区切りトークン化
+    let mut child = match Command::new(cmd)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .spawn()?;
+        .spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("[warn] failed to spawn '{}': {} -> fallback whitespace tokenization (cached)", cmd, e);
+            SUDACHI_FALLBACK.store(true, Ordering::Relaxed);
+            return Ok(text.split_whitespace().map(|s| s.to_string()).collect());
+        }
+    };
     if let Some(mut stdin) = child.stdin.take() {
         use std::io::Write;
         stdin.write_all(text.as_bytes())?;
@@ -208,6 +223,31 @@ fn load_documents_stream<P: AsRef<Path>>(dir: P, cmd: &str, _corpus: &Corpus, ve
     let mut spin_idx = 0usize;
     let workers = rayon::current_num_threads().max(2); // 少なくとも2
 
+    // まず軽量にファイル一覧だけ収集して総数を把握 (サイズ取得等は後で)
+    // 大量ファイル時に無音にならないよう進捗表示
+    eprint!("[scan] collecting file list ...");
+    let mut file_list: Vec<std::path::PathBuf> = Vec::new();
+    let mut scan_count: usize = 0;
+    let mut collected = 0usize;
+    for e in fs::read_dir(&dir)? {
+        if let Ok(e) = e {
+            let p = e.path();
+            if p.is_file() {
+                file_list.push(p);
+                collected += 1;
+                if let Some(lim) = limit { if collected >= lim { scan_count += 1; break; } }
+            }
+            scan_count += 1;
+            if scan_count % 1000 == 0 { eprint!("\r[scan] visited={} files (current kept={})", scan_count, file_list.len()); let _ = io::stderr().flush(); }
+        }
+        if let Some(lim) = limit { if collected >= lim { break; } }
+    }
+    eprintln!("\r[scan] visited={} files (kept={}) done", scan_count, file_list.len());
+    let total_files_all = file_list.len();
+    if total_files_all == 0 { eprintln!("[warn] no files found in directory"); return Ok(0); }
+    eprintln!("[scan] total_files={} starting workers (limit={:?})", total_files_all, limit);
+    let target_total = limit.map(|l| l.min(total_files_all)).unwrap_or(total_files_all);
+
     // チャネル: パス送信用 & 結果受信用
     let (path_tx, path_rx_raw) = mpsc::channel::<std::path::PathBuf>();
     let path_rx = std::sync::Arc::new(std::sync::Mutex::new(path_rx_raw));
@@ -247,21 +287,22 @@ fn load_documents_stream<P: AsRef<Path>>(dir: P, cmd: &str, _corpus: &Corpus, ve
     drop(res_tx);
 
     // 列挙スレッド (即座にワーカーへ流す)
-    let dir_path_buf = dir.as_ref().to_path_buf();
     let enum_tx = path_tx.clone();
     let stop_enum = stop_flag.clone();
     let enum_handle = std::thread::spawn(move || {
-        if let Ok(read_dir) = fs::read_dir(&dir_path_buf) {
-            for e in read_dir.flatten() {
-                let p = e.path();
-                if p.is_file() {
-                    if stop_enum.load(Ordering::Relaxed) { break; }
-                    let _ = enum_tx.send(p);
-                }
+        let mut sent = 0usize;
+        for p in file_list.into_iter() {
+            if stop_enum.load(Ordering::Relaxed) { break; }
+            if let Some(lim) = limit {
+                if sent >= lim { break; }
+                if enum_tx.send(p.clone()).is_err() { break; }
+                sent += 1;
+            } else {
+                if enum_tx.send(p).is_err() { break; }
+                sent += 1; // カウントは統一的に更新
             }
         }
-        // 送信終了
-        // drop(enum_tx) here
+        // 送信終了 (drop)
     });
     drop(path_tx); // メイン側送信クローズ -> 列挙終了後にワーカーへEOFが流れる
 
@@ -271,6 +312,8 @@ fn load_documents_stream<P: AsRef<Path>>(dir: P, cmd: &str, _corpus: &Corpus, ve
     let mut total_tokens = 0usize;
     let mut total_bytes: u64 = 0;
     let mut last_refresh = Instant::now();
+    let mut ewma_rate: f64 = 0.0; // 平滑化した docs/s
+    let alpha = 0.2; // EWMA 係数
     while let Ok(msg) = res_rx.recv() {
         processed_files += 1;
         if let Some((doc_key, tf, token_len, file_size)) = msg {
@@ -284,8 +327,11 @@ fn load_documents_stream<P: AsRef<Path>>(dir: P, cmd: &str, _corpus: &Corpus, ve
             let elapsed = start_all.elapsed().as_secs_f64();
             let frame = spin_frames[spin_idx % spin_frames.len()];
             spin_idx += 1;
-            let docs_per_sec = if elapsed > 0.0 { added_docs as f64 / elapsed } else { 0.0 };
-            eprint!("\r[stream {}] added={} files={} tokens={} bytes={} {:.2} docs/s elapsed {:.1}s", frame, added_docs, processed_files, total_tokens, total_bytes, docs_per_sec, elapsed);
+            let inst_rate = if elapsed > 0.0 { added_docs as f64 / elapsed } else { 0.0 };
+            ewma_rate = if ewma_rate == 0.0 { inst_rate } else { ewma_rate * (1.0 - alpha) + inst_rate * alpha };
+            let remaining = if added_docs >= target_total { 0 } else { target_total - added_docs };
+            let eta = if ewma_rate > 0.0 { remaining as f64 / ewma_rate } else { f64::NAN };
+            eprint!("\r[stream {}] {}/{} added | files_processed={} tokens={} bytes={} rate={:.2} docs/s ETA={:.1}s elapsed {:.1}s", frame, added_docs, target_total, processed_files, total_tokens, total_bytes, ewma_rate, eta, elapsed);
             let _ = io::stderr().flush();
             last_refresh = Instant::now();
         }
@@ -294,7 +340,7 @@ fn load_documents_stream<P: AsRef<Path>>(dir: P, cmd: &str, _corpus: &Corpus, ve
     let _ = enum_handle.join();
     let elapsed = start_all.elapsed().as_secs_f64();
     let docs_per_sec = if elapsed > 0.0 { added_docs as f64 / elapsed } else { 0.0 };
-    eprintln!("\r[done stream] added={} files={} tokens={} bytes={} elapsed {:.2}s avg {:.2} docs/s        ", added_docs, processed_files, total_tokens, total_bytes, elapsed, docs_per_sec);
+    eprintln!("\r[done stream] added={} target={} files_processed={} tokens={} bytes={} elapsed {:.2}s avg {:.2} docs/s        ", added_docs, target_total, processed_files, total_tokens, total_bytes, elapsed, docs_per_sec);
     Ok(added_docs)
 }
 
@@ -348,7 +394,7 @@ fn main() {
     let load_start = Instant::now();
     let load_res = if force_parallel { load_documents_parallel(&docs_dir, &sudachi_cmd, &corpus, &mut vectorizer, limit_opt) } else { load_documents_stream(&docs_dir, &sudachi_cmd, &corpus, &mut vectorizer, limit_opt) };
     match load_res {
-        Ok(n) => eprintln!("[info] loaded {} documents from {}", n, docs_dir),
+        Ok(n) => eprintln!("[info] loaded {} documents (vocab={}) from {}", n, corpus.vocab_size(), docs_dir),
         Err(e) => { eprintln!("[error] failed to load documents: {}", e); return; }
     }
     if vectorizer.documents.is_empty() {

@@ -5,6 +5,7 @@ use std::{alloc::{alloc, dealloc, realloc, Layout}, fmt, marker::PhantomData, me
 use std::ops::Index;
 use std::fmt::Debug;
 
+use dashmap::iter::Iter;
 use num::Num;
 /// ZeroSpVecは0要素を疎とした過疎ベクトルを実装です
 /// indices と valuesを持ち
@@ -45,6 +46,7 @@ where N: Num
     fn get_ind(&self, index: usize) -> Option<usize>;
     fn remove(&mut self, index: usize) -> N;
     fn from_vec(vec: Vec<N>) -> Self;
+    fn from_raw_iter(iter: impl Iterator<Item = (usize, N)>) -> Self;
     fn iter(&self) -> ZeroSpVecIter<N>;
     fn raw_iter(&self) -> ZeroSpVecRawIter<N>;
 }
@@ -336,6 +338,18 @@ where N: Num
     }
 
     #[inline]
+    fn from_raw_iter(iter: impl Iterator<Item = (usize, N)>) -> Self {
+        let mut zero_sp_vec = ZeroSpVec::new();
+        for (index, value) in iter {
+            unsafe {
+                zero_sp_vec.raw_push(index, value);
+            }
+            zero_sp_vec.len += 1;
+        }
+        zero_sp_vec
+    }
+
+    #[inline]
     fn iter(&self) -> ZeroSpVecIter<N> {
         ZeroSpVecIter {
             vec: self,
@@ -471,7 +485,22 @@ where T: Num
     }
 }
 
-
+impl<'a, N> From<ZeroSpVecRawIter<'a, N>> for ZeroSpVec<N>
+where
+    N: Num + Copy,
+{
+    #[inline]
+    fn from(iter: ZeroSpVecRawIter<'a, N>) -> Self {
+        let mut vec = ZeroSpVec::new();
+        for (idx, val) in iter {
+            unsafe {
+                vec.raw_push(idx, *val);
+            }
+            vec.len += 1;
+        }
+        vec
+    }
+}
 
 
 
