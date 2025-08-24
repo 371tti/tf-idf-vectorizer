@@ -77,4 +77,10 @@ impl Corpus {
     pub fn get_token_count(&self, token: &str) -> u64 {
         self.token_counts.get(token).map_or(0, |count| *count)
     }
+
+    /// 現在の語彙サイズ (ユニークトークン数)
+    #[inline]
+    pub fn vocab_size(&self) -> usize {
+        self.token_counts.len()
+    }
 }

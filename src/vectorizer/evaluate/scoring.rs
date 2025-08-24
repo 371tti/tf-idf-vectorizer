@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use num::Num;
 
-use crate::{utils::math::vector::ZeroSpVecTrait, vectorizer::{compute::compare::{Compare, DefaultCompare}, tfidf::TFIDFEngine, token::TokenFrequency, TFIDFVectorizer}};
+use crate::{utils::math::vector::{ZeroSpVec, ZeroSpVecTrait}, vectorizer::{compute::compare::{Compare, DefaultCompare}, tfidf::TFIDFEngine, token::TokenFrequency, TFIDFVectorizer}};
 
 /// 検索クエリの種類を定義する列挙型
 pub enum SimilarityQuery {
@@ -132,16 +132,16 @@ where
 
         // 一度 collect して再利用可能にする
         let (query_iter, _query_denorm) =
-            E::tfidf_iter_calc(tf.iter().copied(), tf_denormalize_num, idf.iter().copied(), idf_denormalize_num);
-        let query_vec: Vec<N> = query_iter.collect();
+            E::tfidf_iter_calc_sparse(tf.raw_iter().map(|(idx, val)| (idx, *val)), tf_denormalize_num, &idf, idf_denormalize_num);
+        let query_vec: ZeroSpVec<N> = ZeroSpVec::from_raw_iter(query_iter);
 
         let mut list = Vec::with_capacity(self.documents.len());
         for doc in &self.documents {
             let (doc_iter, _doc_denorm) =
-                E::tfidf_iter_calc(doc.tf_vec.iter().copied(), doc.denormalize_num, idf.iter().copied(), idf_denormalize_num);
+                E::tfidf_iter_calc_sparse(doc.tf_vec.raw_iter().map(|(idx, val)| (idx, *val)), doc.denormalize_num, &idf, idf_denormalize_num);
 
             // Vec からイテレータを再生成して渡す（copied() はプリミティブでほぼコスト無し）
-            let dot = DefaultCompare::cosine_similarity(query_vec.iter().copied(), doc_iter);
+            let dot = DefaultCompare::cosine_similarity(query_vec.raw_iter().map(|(idx, val)| (idx, *val)), doc_iter);
             let score = dot;
             list.push((doc.key.clone(), score));
         }

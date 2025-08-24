@@ -8,7 +8,7 @@ pub mod evaluate;
 use num::Num;
 use ::serde::{Deserialize, Serialize};
 
-use crate::{utils::math::vector::ZeroSpVec, vectorizer::{compute::compare::{Compare, DefaultCompare}, corpus::Corpus, tfidf::{DefaultTFIDFEngine, TFIDFEngine}, token::TokenFrequency}};
+use crate::{utils::math::vector::{ZeroSpVec, ZeroSpVecTrait}, vectorizer::{compute::compare::{Compare, DefaultCompare}, corpus::Corpus, tfidf::{DefaultTFIDFEngine, TFIDFEngine}, token::TokenFrequency}};
 use std::collections::HashSet;
 
 #[derive(Debug)]
@@ -46,6 +46,15 @@ where
     pub denormalize_num: f64,
     /// ドキュメントID
     pub key: K,
+}
+
+impl<N, K> TFVector<N, K>
+where
+    N: Num + Copy,
+{
+    pub fn shrink_to_fit(&mut self) {
+        self.tf_vec.shrink_to_fit();
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -141,12 +150,13 @@ where
         }
 
         let (tf_vec, denormalize_num) = E::tf_vec(doc, &self.token_dim_sample);
-        let doc = TFVector {
+        let mut doc = TFVector {
             tf_vec,
             token_sum,
             denormalize_num,
             key: doc_id,
         };
+        doc.shrink_to_fit();
         self.documents.push(doc);
     }
 

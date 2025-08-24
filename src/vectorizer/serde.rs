@@ -6,7 +6,7 @@ use crate::vectorizer::{compute::compare::{Compare, DefaultCompare}, corpus::Cor
 /// TFIDFVectorizerのデシリアライズ用のデータ構造
 /// これは参照を含んでいないため、シリアライズ可能です。
 /// `into_tf_idf_vectorizer`メソッドを使用して、`TFIDFVectorizer`に変換できます。
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct TFIDFData<N = f32, K = String, E = DefaultTFIDFEngine, C = DefaultCompare>
 where
     N: Num + Copy,
@@ -18,7 +18,9 @@ where
     pub token_dim_sample: Vec<String>,
     /// IDFベクトル
     pub idf: IDFVector<N>,
+    #[serde(default, skip_serializing, skip_deserializing)]
     _marker: std::marker::PhantomData<E>,
+    #[serde(default, skip_serializing, skip_deserializing)]
     _compare_marker: std::marker::PhantomData<C>,
 }
 
@@ -60,7 +62,7 @@ where
     where
         S: serde::Serializer,
     {
-        let mut state = serializer.serialize_struct("TFIDFVectorizer", 4)?;
+        let mut state = serializer.serialize_struct("TFIDFVectorizer", 3)?;
         state.serialize_field("documents", &self.documents)?;
         state.serialize_field("token_dim_sample", &self.token_dim_sample)?;
         state.serialize_field("idf", &self.idf)?;

@@ -1,3 +1,7 @@
 target/
 index.cbor
 data/ex_docs/*
+milion.corpus.cbor
+milion.index.cbor
+test.corpus.cbor
+test.index.cbor

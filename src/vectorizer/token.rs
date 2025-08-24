@@ -351,4 +351,10 @@ impl TokenFrequency {
         self.token_count.clear();
         self.total_token_count = 0;
     }
+
+    /// shrink internal storage to fit current size
+    #[inline]
+    pub fn shrink_to_fit(&mut self) {
+        self.token_count.shrink_to_fit();
+    }
 }
