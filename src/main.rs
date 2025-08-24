@@ -1,6 +1,5 @@
 use std::{env, fs, io, path::Path, process::{Command, Stdio}, time::Instant};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::atomic::{AtomicBool, Ordering};
 use rayon::prelude::*;
 use tf_idf_vectorizer::vectorizer::{corpus::Corpus, evaluate::scoring::SimilarityQuery, token::TokenFrequency, TFIDFVectorizer, serde::TFIDFData};
 use serde::{Serialize, de::DeserializeOwned};
@@ -12,16 +11,8 @@ const SUDACHI_CHUNK_BYTE_LIMIT: usize = 40_000;
 // Sudachi が存在しない場合のフォールバックフラグ (一度失敗したら以降 spawn を試さない)
 static SUDACHI_FALLBACK: AtomicBool = AtomicBool::new(false);
 
-// Sudachi が存在しない場合のフォールバックフラグ (一度失敗したら以降 spawn を試さない)
-static SUDACHI_FALLBACK: AtomicBool = AtomicBool::new(false);
-
 // 外部コマンド (Sudachi) を 1 回だけ実行して text をトークン化
 fn sudachi_tokenize_once(cmd: &str, text: &str) -> io::Result<Vec<String>> {
-    if SUDACHI_FALLBACK.load(Ordering::Relaxed) {
-        return Ok(text.split_whitespace().map(|s| s.to_string()).collect());
-    }
-    // Sudachi コマンド起動。存在しない/起動失敗時はフォールバックして空白区切りトークン化
-    let mut child = match Command::new(cmd)
     if SUDACHI_FALLBACK.load(Ordering::Relaxed) {
         return Ok(text.split_whitespace().map(|s| s.to_string()).collect());
     }
@@ -30,14 +21,6 @@ fn sudachi_tokenize_once(cmd: &str, text: &str) -> io::Result<Vec<String>> {
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .spawn() {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("[warn] failed to spawn '{}': {} -> fallback whitespace tokenization (cached)", cmd, e);
-            SUDACHI_FALLBACK.store(true, Ordering::Relaxed);
-            return Ok(text.split_whitespace().map(|s| s.to_string()).collect());
-        }
-    };
         .spawn() {
         Ok(c) => c,
         Err(e) => {
@@ -272,31 +255,6 @@ fn load_documents_stream<P: AsRef<Path>>(dir: P, cmd: &str, _corpus: &Corpus, ve
     eprintln!("[scan] total_files={} starting workers (limit={:?})", total_files_all, limit);
     let target_total = limit.map(|l| l.min(total_files_all)).unwrap_or(total_files_all);
 
-    // まず軽量にファイル一覧だけ収集して総数を把握 (サイズ取得等は後で)
-    // 大量ファイル時に無音にならないよう進捗表示
-    eprint!("[scan] collecting file list ...");
-    let mut file_list: Vec<std::path::PathBuf> = Vec::new();
-    let mut scan_count: usize = 0;
-    let mut collected = 0usize;
-    for e in fs::read_dir(&dir)? {
-        if let Ok(e) = e {
-            let p = e.path();
-            if p.is_file() {
-                file_list.push(p);
-                collected += 1;
-                if let Some(lim) = limit { if collected >= lim { scan_count += 1; break; } }
-            }
-            scan_count += 1;
-            if scan_count % 1000 == 0 { eprint!("\r[scan] visited={} files (current kept={})", scan_count, file_list.len()); let _ = io::stderr().flush(); }
-        }
-        if let Some(lim) = limit { if collected >= lim { break; } }
-    }
-    eprintln!("\r[scan] visited={} files (kept={}) done", scan_count, file_list.len());
-    let total_files_all = file_list.len();
-    if total_files_all == 0 { eprintln!("[warn] no files found in directory"); return Ok(0); }
-    eprintln!("[scan] total_files={} starting workers (limit={:?})", total_files_all, limit);
-    let target_total = limit.map(|l| l.min(total_files_all)).unwrap_or(total_files_all);
-
     // チャネル: パス送信用 & 結果受信用
     // bounded channels give backpressure when workers or enumerator are producing faster than consuming
     let (path_tx, path_rx_raw) = mpsc::sync_channel::<std::path::PathBuf>(workers.saturating_mul(4));
@@ -356,7 +314,6 @@ fn load_documents_stream<P: AsRef<Path>>(dir: P, cmd: &str, _corpus: &Corpus, ve
             }
         }
         // 送信終了 (drop)
-        // 送信終了 (drop)
     });
     drop(path_tx); // メイン側送信クローズ -> 列挙終了後にワーカーへEOFが流れる
 
@@ -366,8 +323,6 @@ fn load_documents_stream<P: AsRef<Path>>(dir: P, cmd: &str, _corpus: &Corpus, ve
     let mut total_tokens = 0usize;
     let mut total_bytes: u64 = 0;
     let mut last_refresh = Instant::now();
-    let mut ewma_rate: f64 = 0.0; // 平滑化した docs/s
-    let alpha = 0.2; // EWMA 係数
     let mut ewma_rate: f64 = 0.0; // 平滑化した docs/s
     let alpha = 0.2; // EWMA 係数
     while let Ok(msg) = res_rx.recv() {
@@ -388,11 +343,6 @@ fn load_documents_stream<P: AsRef<Path>>(dir: P, cmd: &str, _corpus: &Corpus, ve
             let remaining = if added_docs >= target_total { 0 } else { target_total - added_docs };
             let eta = if ewma_rate > 0.0 { remaining as f64 / ewma_rate } else { f64::NAN };
             eprint!("\r[stream {}] {}/{} added | files_processed={} tokens={} bytes={} rate={:.2} docs/s ETA={:.1}s elapsed {:.1}s", frame, added_docs, target_total, processed_files, total_tokens, total_bytes, ewma_rate, eta, elapsed);
-            let inst_rate = if elapsed > 0.0 { added_docs as f64 / elapsed } else { 0.0 };
-            ewma_rate = if ewma_rate == 0.0 { inst_rate } else { ewma_rate * (1.0 - alpha) + inst_rate * alpha };
-            let remaining = if added_docs >= target_total { 0 } else { target_total - added_docs };
-            let eta = if ewma_rate > 0.0 { remaining as f64 / ewma_rate } else { f64::NAN };
-            eprint!("\r[stream {}] {}/{} added | files_processed={} tokens={} bytes={} rate={:.2} docs/s ETA={:.1}s elapsed {:.1}s", frame, added_docs, target_total, processed_files, total_tokens, total_bytes, ewma_rate, eta, elapsed);
             let _ = io::stderr().flush();
             last_refresh = Instant::now();
         }
@@ -401,7 +351,6 @@ fn load_documents_stream<P: AsRef<Path>>(dir: P, cmd: &str, _corpus: &Corpus, ve
     let _ = enum_handle.join();
     let elapsed = start_all.elapsed().as_secs_f64();
     let docs_per_sec = if elapsed > 0.0 { added_docs as f64 / elapsed } else { 0.0 };
-    eprintln!("\r[done stream] added={} target={} files_processed={} tokens={} bytes={} elapsed {:.2}s avg {:.2} docs/s        ", added_docs, target_total, processed_files, total_tokens, total_bytes, elapsed, docs_per_sec);
     eprintln!("\r[done stream] added={} target={} files_processed={} tokens={} bytes={} elapsed {:.2}s avg {:.2} docs/s        ", added_docs, target_total, processed_files, total_tokens, total_bytes, elapsed, docs_per_sec);
     Ok(added_docs)
 }

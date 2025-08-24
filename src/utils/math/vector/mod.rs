@@ -6,7 +6,6 @@ use std::ops::Index;
 use std::fmt::Debug;
 
 use dashmap::iter::Iter;
-use dashmap::iter::Iter;
 use num::Num;
 /// ZeroSpVecは0要素を疎とした過疎ベクトルを実装です
 /// indices と valuesを持ち
@@ -508,22 +507,6 @@ where T: Num
     }
 }
 
-impl<'a, N> From<ZeroSpVecRawIter<'a, N>> for ZeroSpVec<N>
-where
-    N: Num + Copy,
-{
-    #[inline]
-    fn from(iter: ZeroSpVecRawIter<'a, N>) -> Self {
-        let mut vec = ZeroSpVec::new();
-        for (idx, val) in iter {
-            unsafe {
-                vec.raw_push(idx, *val);
-            }
-            vec.len += 1;
-        }
-        vec
-    }
-}
 impl<'a, N> From<ZeroSpVecRawIter<'a, N>> for ZeroSpVec<N>
 where
     N: Num + Copy,
