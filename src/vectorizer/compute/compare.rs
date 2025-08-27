@@ -26,6 +26,7 @@ where
 #[derive(Debug)]
 pub struct DefaultCompare;
 
+/// impl Compare for u8, u16, u32, f32, f64
 impl Compare<u8> for DefaultCompare {
     #[inline(always)]
     fn dot(vec: impl Iterator<Item = u8>, other: impl Iterator<Item = u8>) -> f64 {

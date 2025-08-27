@@ -37,18 +37,20 @@ impl<K> Hits<K> {
         Hits { list: vec }
     }
 
-    pub fn sort_by_score(&mut self) {
+    pub fn sort_by_score(&mut self) -> &mut Self {
     // NaN を除外 (必要なら末尾へ送る運用も可)
     self.list.retain(|(_, s)| !s.is_nan());
     // total_cmp で反射律/推移律を満たす全順序 (NaN 排除済みなので安全)
     self.list.sort_by(|a, b| b.1.total_cmp(&a.1));
+    self
     }
 
-    pub fn sort_by_score_rev(&mut self) {
+    pub fn sort_by_score_rev(&mut self) -> &mut Self{
         // NaN を除外 (必要なら末尾へ送る運用も可)
         self.list.retain(|(_, s)| !s.is_nan());
         // total_cmp で反射律/推移律を満たす全順序 (NaN 排除済みなので安全)
         self.list.sort_by(|a, b| a.1.total_cmp(&b.1));
+        self
     }
 }
 

@@ -1,153 +1,127 @@
-# tf-idf-Vectorizer
+<div align="center">
+<h1 style="font-size: 50px">TF‑IDF-Vectorizer</h1>
+<p>Ultra-flexible & high-speed document analysis engine in Rust</p>
+</div>
 
-このライブラリは、Rustで実装されたTF-IDFベクトライザーです。  
-TF-IDF (Term Frequency-Inverse Document Frequency) は、文書中の各単語の重要度を評価するための有力な手法で、情報検索やテキストマイニング、自然言語処理の分野で広く利用されています。  
-本ライブラリは、高速な並列処理と効率的なアルゴリズムにより、大規模なコーパスに対しても実用的なパフォーマンスを提供します。
-  
-- **TF (Term Frequency)**: 各ドキュメント内で単語がどれだけ登場するか  
-- **IDF (Inverse Document Frequency)**: コーパス全体における単語の希少性を評価  
-これらを組み合わせることにより、他の単語に比べてその単語がどれだけ特徴的かを示すことができます。  
-本ライブラリはこの計算を効率的に行い、検索や解析タスクへの応用を容易にします。
+Supports everything from corpus construction → TF calculation → IDF calculation → TF-IDF vectorization / similarity search.
 
-## 概要
-ライブラリは以下のプロセスでTF-IDFを算出します：
-1. **トークン抽出と前処理**:  
-   - 各ドキュメントから有意な単語（トークン）を抽出  
-   - 小文字化、フィルタリング、正規化などの前処理を実施
-2. **TF計算**:  
-   - 各ドキュメント内での各トークンの出現回数を記録  
-   - 正規化して文書内での相対頻度を算出
-3. **IDF計算**:  
-   - コーパス全体での各トークンの出現する文書数から逆文書頻度を計算  
-4. **TF-IDFベクトル生成**:  
-   - 各トークンについてTFとIDFを掛け合わせ、重要度を評価  
-   - 結果は得点順にソートされる
+## Features
+- Generic parameter engine (f32 / f64 / unsigned integer quantization)
+- Full struct serialization / deserialization (`TFIDFData`) for persistence
+- Similarity calculation utilities (`SimilarityQuery`, `Hits`) for search
+- No index build step: instant add/remove, real-time operation
+- Thread-safe
+- Corpus info separated: index can be swapped independently
+- Restorable: keeps document statistics
 
-内部実装では `TokenFrequency` によりこれらの計算が管理され、Rayon ライブラリを用いた並列処理で高速かつスケーラブルに動作します。
+## Performance
+- Environment
+  - OS: Windows 11 Pro 23H2
+  - CPU: i9-11900K @ 3.5GHz AVX512 enabled
+  - RAM: 16GB + 32GB, DDR5 - 2800, 1-1
+- Target
+  - Wikipedia JP random 100k docs
+- Results
+  - tokenize = 0.00ms
+  - build_refs = 0.00ms
+  - tf_build = 0.00ms
+  - score = 354.53ms
+  - total = 354.53ms
 
-## 特徴
-- **高速並列処理**: 大量のデータを効率的に処理  
-- **柔軟な前処理**: トークンのフィルタリングや正規化が容易にカスタマイズ可能  
-- **シンプルなAPI**: インデックス作成、ドキュメント追加、検索をシンプルなメソッドで実現
-
-## インストール
-Cargo.tomlに以下の依存関係を追加してください:
+## Setup
+Cargo.toml
 ```toml
 [dependencies]
-tf-idf-vectorizer = "0.1.0"
+tf-idf-vectorizer = "0.4.0"  # This README is for v0.4.x
 ```
 
-## 使い方
+## Basic Usage
 
-### インデックス作成とドキュメント追加
-下記は、インデックス作成とドキュメントの追加、検索クエリの生成例です。
 ```rust
-use tf_idf_vectorizer::vectorizer::index::Index;
+use tf_idf_vectorizer::{Corpus, SimilarityQuery, TFIDFVectorizer, TokenFrequency};
 
 fn main() {
-    // インデックスを初期化
-    let mut index = Index::new();
-    
-    // 例: フルーツに関するドキュメントを追加
-    index.add_doc("doc1".to_string(), &["apple", "banana", "orange"]);
-    
-    // 検索クエリの生成例（"apple" と "banana" を含む文書を検索）
-    let query = index.generate_query(&["apple", "banana"]);
-    let results = index.search_cosine_similarity_parallel(&query, 16);
-    println!("検索結果: {:?}", results);
+    // Prepare corpus
+    let corpus = Corpus::new();
+
+    // Prepare token frequencies
+    let mut freq1 = TokenFrequency::new();
+    freq1.add_tokens(&["rust", "fast", "parallel", "rust"]);
+    let mut freq2 = TokenFrequency::new();
+    freq2.add_tokens(&["rust", "flexible", "safe", "rust"]);
+
+    // Create vectorizer (using u16 quantization)
+    let mut vectorizer: TFIDFVectorizer<u16> = TFIDFVectorizer::new(&corpus);
+
+    // Add documents to vectorizer
+    vectorizer.add_doc("doc1".to_string(), &freq1);
+    vectorizer.add_doc("doc2".to_string(), &freq2);
+
+    // Prepare query token frequency
+    let mut query_tokens = TokenFrequency::new();
+    query_tokens.add_tokens(&["rust", "fast"]);
+
+    // Create query
+    let query = SimilarityQuery::CosineSimilarity(query_tokens);
+    // Calculate similarity and sort
+    let mut result = vectorizer.similarity(query);
+    result.sort_by_score();
+
+    // Display results
+    result.list.iter().for_each(|(k, s)| {
+        println!("doc: {}, score: {}", k, s);
+    });
 }
 ```
 
-### TokenFrequency の利用例
-`TokenFrequency` は、各ドキュメント内の単語の出現情報を管理し、TF/IDFの計算を行います。
-```rust
-use tf_idf_vectorizer::vectorizer::token::TokenFrequency;
-
-fn main() {
-    // TokenFrequency の初期化
-    let mut tf = TokenFrequency::new();
-    
-    // ドキュメント内の単語を登録
-    tf.add_tokens(&["apple", "banana", "apple", "orange"]);
-    
-    // "apple" の出現頻度 (TF) を取得
-    println!("apple の頻度: {}", tf.tf_token("apple"));
-    
-    // 仮に全ドキュメント数を10としてIDFを計算
-    for (token, idf) in tf.idf_vector_ref_str(10) {
-        println!("Token: {}, IDF: {:.4}", token, idf);
-    }
-}
-```
-### TFIDFVectorizer の利用例
-
-以下のコード例は、TFIDFVectorizer の基本的な利用方法を示しています。  
-各文書からコーパスを構築し、特定の単語リストに対して TF-IDF ベクトルを算出する手順を確認できます。
+## Serialization / Restoration
+`TFIDFVectorizer` contains references and cannot be deserialized directly.  
+Serialize as `TFIDFData`, and restore with `into_tf_idf_vectorizer(&Corpus)`.
+You can use any corpus for restoration; if the index contains tokens not in the corpus, they are ignored.
 
 ```rust
-use tf_idf_vectorizer::vectorizer::tfidf::TFIDFVectorizer;
+// Save
+let dump = serde_json::to_string(&vectorizer)?;
 
-fn main() {
-    // TFIDFVectorizer の新規作成
-    let mut vectorizer = TFIDFVectorizer::new();
-    
-    // サンプルのコーパス（各文書は単語のスライス）
-    let documents = vec![
-        vec!["rust", "高速", "パフォーマンス", "並列処理"],
-        vec!["tf-idf", "ベクトライザー", "テキストマイニング"],
-        vec!["rust", "tf-idf", "アルゴリズム", "効率的"],
-    ];
-    
-    // 各文書からトークンを追加してコーパスを構築
-    for doc in &documents {
-        vectorizer.add_corpus(doc);
-    }
-    
-    // 特定の単語リストに対してTF-IDFベクトルを算出
-    let tokens = vec!["rust", "tf-idf", "並列処理"];
-    let tfidf_vector = vectorizer.tf_idf_vector(&tokens);
-    
-    println!("TF-IDF Vector: {:?}", tfidf_vector);
-}
+// Restore
+let data: TFIDFData = serde_json::from_str(&dump)?;
+let restored = data.into_tf_idf_vectorizer(&corpus);
 ```
-###
 
-## API リファレンス
+## Similarity Search (Concept)
+1. Convert input tokens to query vector (`SimilarityQuery`)
+2. Compare with each document using dot product / cosine similarity, etc.
+3. Return all results as `Hits`
 
-### TFIDFVectorizer
-- `TFIDFVectorizer::new()`  
-  新規のベクトライザーを生成します。
-  
-- `add_corpus(tokens: &[&str])`  
-  渡されたトークンをコーパスに追加し、内部の頻度データを更新します。
-  
-- `tf_idf_vector(tokens: &[&str]) -> Vec<(&str, f64)>`  
-  指定されたトークンリストからTF-IDFベクトルを算出し、得点順にソートして返します。
+You can inject your own scoring function by replacing the implemented `Compare` trait / `DefaultCompare`.
 
-### TokenFrequency
-- `TokenFrequency::new()`  
-  新しい TokenFrequency のインスタンスを生成します。
-  
-- `add_tokens(tokens: &[&str])`  
-  ドキュメント内のトークンを登録し、出現カウントを更新します。
-  
-- `tf_token(token: &str) -> f64`  
-  指定したトークンの正規化された出現頻度 (TF) を計算して返します。
-  
-- `idf_vector_ref_str(total_doc_count: u64) -> Vec<(&str, f64)>`  
-  コーパス全体に基づき、各トークンの逆文書頻度 (IDF) を算出して返します。
+## Performance Tips
+- Cache token dictionary (`token_dim_sample` / `token_dim_set`) to avoid rebuilding
+- Sparse TF representation omits zeros
+- Using integer scale types (u16/u32) compresses memory (normalization is just 1/max multiplication; float ops are slightly faster)
+- Combine iterators to avoid temporary Vec allocation (`tf.zip(idf).map(...)`)
 
-## 内部実装の詳細
-主要なコンポーネントは以下の通りです：
-- **インデックス管理 (`Index`)**:  
-  - ドキュメントの追加や検索クエリの生成を行い、類似性計算を担当。  
-- **頻度管理 (`TokenFrequency`)**:  
-  - 個々の単語の出現情報を格納し、TFとIDFの計算ロジックを提供。  
-- **並列処理**:  
-  - Rayonを利用して、複数のドキュメントの処理・検索を並列化し、パフォーマンスを向上。  
+## Type Overview
+| Type                | Role                                 |
+|---------------------|--------------------------------------|
+| Corpus              | Document set meta / frequency getter |
+| TokenFrequency      | Token frequency in a single document |
+| TFVector            | Sparse TF vector for one document    |
+| IDFVector           | Global IDF and meta                  |
+| TFIDFVectorizer     | TF/IDF management and search entry   |
+| TFIDFData           | Intermediate for serialization       |
+| DefaultTFIDFEngine  | TF/IDF calculation backend           |
+| SimilarityQuery / Hits | Search query and results          |
 
-各コンポーネントはモジュールごとに分離されており、拡張や機能のカスタマイズも容易に行えます。
+## Customization
+- Switch numeric type: f32/f64/u16/u32, etc.
+- Extend scoring by implementing the `Compare` trait
+- Swap out `TFIDFEngine` for different weighting schemes
 
-## ライセンス
-このプロジェクトは MIT ライセンスの下で提供されています。
+## Examples (examples/)
+Run the minimal example with:
+```
+cargo run --example basic
+```
 
+# Contributions welcome via Pull Request (。-`ω-
