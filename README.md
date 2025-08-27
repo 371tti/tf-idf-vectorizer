@@ -21,6 +21,7 @@ Supports everything from corpus construction → TF calculation → IDF calculat
   - RAM: 16GB + 32GB, DDR5 - 2800, 1-1
 - Target
   - Wikipedia JP random 100k docs
+  - cosine similarity search
 - Results
   - tokenize = 0.00ms
   - build_refs = 0.00ms

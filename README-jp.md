@@ -21,6 +21,7 @@
   - RAM: 16GB + 32GB, DDR5 - 2800, 1-1
 - 対象
   - wikipedia jp random 100k doc
+  - コサイン類似度検索
 - 結果
   - tokenize=0.00ms 
   - build_refs=0.00ms 
