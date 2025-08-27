@@ -3,7 +3,7 @@
 <p>Rust製の 圧倒的柔軟/高速 な文章解析エンジン</p>
 </div>
 
-lang [ [en](./README.md) | jp ]
+lang [ [en](./README.md) | ja ]
  
 コーパス構築 → TF 計算 → IDF 計算 → TF-IDF ベクトル化 / 類似度検索 までを一通りサポート。
 
