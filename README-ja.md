@@ -20,7 +20,7 @@ lang [ [en](./README.md) | ja ]
 - 環境
   - OS: windows 11 pro 23H2
   - CPU: i9-11900K @ 3.5GHz AVX512 enabled
-  - RAM: 16GB + 32GB, DDR5 - 2800, 1-1
+  - RAM: 16GB + 32GB, DDR4 - 2800, 1-1
 - 対象
   - wikipedia jp random 100k doc
   - コサイン類似度検索
