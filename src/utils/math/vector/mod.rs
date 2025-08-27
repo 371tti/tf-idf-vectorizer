@@ -1,11 +1,10 @@
-pub mod math;
+// pub mod math;
 pub mod serde;
 
 use std::{alloc::{alloc, dealloc, realloc, Layout}, fmt, marker::PhantomData, mem, ptr::{self, NonNull}};
 use std::ops::Index;
 use std::fmt::Debug;
 
-use dashmap::iter::Iter;
 use num::Num;
 /// ZeroSpVecは0要素を疎とした過疎ベクトルを実装です
 /// indices と valuesを持ち
