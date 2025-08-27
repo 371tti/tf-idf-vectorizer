@@ -3,6 +3,8 @@
 <p>Ultra-flexible & high-speed document analysis engine in Rust</p>
 </div>
 
+lang [ en | [jp](./README-ja.md) ]
+
 Supports everything from corpus construction → TF calculation → IDF calculation → TF-IDF vectorization / similarity search.
 
 ## Features

@@ -2,6 +2,8 @@
 <h1 style="font-size: 50px">TF‑IDF-Vectorizer</h1>
 <p>Rust製の 圧倒的柔軟/高速 な文章解析エンジン</p>
 </div>
+
+lang [ [en](./README.md) | jp ]
  
 コーパス構築 → TF 計算 → IDF 計算 → TF-IDF ベクトル化 / 類似度検索 までを一通りサポート。
 
