@@ -1,6 +1,8 @@
 use num::Num;
 use serde::{Serialize, Serializer, Deserialize, Deserializer};
 use serde::ser::SerializeStruct;
+use crate::utils::math::vector::ZeroSpVecTrait;
+
 use super::ZeroSpVec;
 
 impl<N> Serialize for ZeroSpVec<N>
@@ -11,8 +13,8 @@ where
     where S: Serializer {
         // シリアライズするフィールドは len, nnz, entries とする
         let mut state = serializer.serialize_struct("ZeroSpVec", 3)?;
-        state.serialize_field("len", &self.len)?;
-        state.serialize_field("nnz", &self.nnz)?;
+        state.serialize_field("len", &(self.len as u64))?;
+        state.serialize_field("nnz", &(self.nnz as u64))?;
         
         // entries: (index, value) のVecとして順序付きに出力する
         let mut entries = Vec::with_capacity(self.nnz);
@@ -20,7 +22,7 @@ where
             for i in 0..self.nnz {
                 let idx = *self.ind_ptr().add(i);
                 let val = *self.val_ptr().add(i);
-                entries.push((idx, val));
+                entries.push((idx as u64, val));
             }
         }
         state.serialize_field("entries", &entries)?;
@@ -39,7 +41,7 @@ where
         struct ZeroSpVecData<N> {
             len: usize,
             nnz: usize,
-            entries: Vec<(usize, N)>,
+            entries: Vec<(u64, N)>,
         }
 
         let data = ZeroSpVecData::deserialize(deserializer)?;
@@ -47,10 +49,9 @@ where
         // capacity は nnz の値で良いとする
         let mut vec = ZeroSpVec::with_capacity(data.nnz);
         vec.len = data.len;
-        vec.nnz = data.nnz;
         // entries を内部バッファに移す
         for (index, value) in data.entries {
-            vec.raw_push(index, value);
+            unsafe { vec.raw_push(index as usize, value) };
         }
         Ok(vec)
     }

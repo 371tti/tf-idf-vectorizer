@@ -1,5 +1,4 @@
-pub mod math;
-pub mod math_normalized;
+// pub mod math;
 pub mod serde;
 
 use std::{alloc::{alloc, dealloc, realloc, Layout}, fmt, marker::PhantomData, mem, ptr::{self, NonNull}};
@@ -22,16 +21,46 @@ where N: Num
     zero: N,
 }
 
-impl<N> ZeroSpVec<N> 
+pub trait ZeroSpVecTrait<N>: Clone + Default + Index<usize, Output = N>
+where N: Num
+{
+    unsafe fn ind_ptr(&self) -> *mut usize;
+    unsafe fn val_ptr(&self) -> *mut N;
+    unsafe fn raw_push(&mut self, index: usize, value: N);
+    fn ind_binary_search(&self, index: &usize) -> Result<usize, usize>;
+    fn new() -> Self;
+    fn with_capacity(cap: usize) -> Self;
+    fn reserve(&mut self, additional: usize);
+    fn shrink_to_fit(&mut self);
+    fn is_empty(&self) -> bool;
+    fn len(&self) -> usize;
+    fn len_mut(&mut self) -> &mut usize;
+    fn capacity(&self) -> usize;
+    fn nnz(&self) -> usize;
+    fn add_dim(&mut self, dim: usize);
+    fn clear(&mut self);
+    fn push(&mut self, elem: N);
+    fn pop(&mut self) -> Option<N>;
+    fn get(&self, index: usize) -> Option<&N>;
+    fn get_ind(&self, index: usize) -> Option<usize>;
+    fn remove(&mut self, index: usize) -> N;
+    fn from_vec(vec: Vec<N>) -> Self;
+    fn from_raw_iter(iter: impl Iterator<Item = (usize, N)>) -> Self;
+    fn from_sparse_iter(iter: impl Iterator<Item = (usize, N)>) -> Self;
+    fn iter(&self) -> ZeroSpVecIter<N>;
+    fn raw_iter(&self) -> ZeroSpVecRawIter<N>;
+}
+
+impl<N> ZeroSpVecTrait<N> for ZeroSpVec<N> 
 where N: Num
 {
     #[inline]
-    fn ind_ptr(&self) -> *mut usize {
+    unsafe fn ind_ptr(&self) -> *mut usize {
         self.buf.ind_ptr.as_ptr()
     }
 
     #[inline]
-    fn val_ptr(&self) -> *mut N {
+    unsafe fn val_ptr(&self) -> *mut N {
         self.buf.val_ptr.as_ptr()
     }
 
@@ -42,7 +71,7 @@ where N: Num
     /// - `index` - 追加する要素のインデックス
     /// - `value` - 追加する要素の値
     #[inline]
-    fn raw_push(&mut self, index: usize, value: N) {
+    unsafe fn raw_push(&mut self, index: usize, value: N) {
         if self.nnz == self.buf.cap {
             self.buf.grow();
         }
@@ -88,7 +117,7 @@ where N: Num
     }
 
     #[inline]
-    pub fn new() -> Self {
+    fn new() -> Self {
         ZeroSpVec {
             buf: RawZeroSpVec::new(),
             len: 0,
@@ -98,7 +127,7 @@ where N: Num
     }
 
     #[inline]
-    pub fn with_capacity(cap: usize) -> Self {
+    fn with_capacity(cap: usize) -> Self {
         let mut buf = RawZeroSpVec::new();
         buf.cap = cap;
         buf.cap_set();
@@ -111,7 +140,7 @@ where N: Num
     }
 
     #[inline]
-    pub fn reserve(&mut self, additional: usize) {
+    fn reserve(&mut self, additional: usize) {
         let new_cap = self.nnz + additional;
         if new_cap > self.buf.cap {
             self.buf.cap = new_cap;
@@ -120,7 +149,7 @@ where N: Num
     }
 
     #[inline]
-    pub fn shrink_to_fit(&mut self) {
+    fn shrink_to_fit(&mut self) {
         if self.len < self.buf.cap {
             let new_cap = self.nnz;
             self.buf.cap = new_cap;
@@ -129,39 +158,44 @@ where N: Num
     }
 
     #[inline]
-    pub fn is_empty(&self) -> bool {
+    fn is_empty(&self) -> bool {
         self.len == 0
     }
 
     #[inline]
-    pub fn len(&self) -> usize {
+    fn len(&self) -> usize {
         self.len
     }
 
     #[inline]
-    pub fn capacity(&self) -> usize {
+    fn len_mut(&mut self) -> &mut usize {
+        &mut self.len
+    }
+
+    #[inline]
+    fn capacity(&self) -> usize {
         self.buf.cap
     }
 
     #[inline]
-    pub fn nnz(&self) -> usize {
+    fn nnz(&self) -> usize {
         self.nnz
     }
 
     #[inline]
-    pub fn add_dim(&mut self, dim: usize) {
+    fn add_dim(&mut self, dim: usize) {
         self.len += dim;
     }
 
     #[inline]
-    pub fn clear(&mut self) {
+    fn clear(&mut self) {
         while let Some(_) = self.pop() {
             // do nothing
         }
     }
 
     #[inline]
-    pub fn push(&mut self, elem: N) {
+    fn push(&mut self, elem: N) {
         if self.nnz == self.buf.cap {
             self.buf.grow();
         }
@@ -178,7 +212,7 @@ where N: Num
     }
 
     #[inline]
-    pub fn pop(&mut self) -> Option<N> {
+    fn pop(&mut self) -> Option<N> {
         if self.nnz == 0 {
             return None;
         }
@@ -195,7 +229,7 @@ where N: Num
     }
 
     #[inline]
-    pub fn get(&self, index: usize) -> Option<&N> {
+    fn get(&self, index: usize) -> Option<&N> {
         if index >= self.len {
             return None;
         }
@@ -212,7 +246,7 @@ where N: Num
     }
 
     #[inline]
-    pub fn get_ind(&self, index: usize) -> Option<usize> {
+    fn get_ind(&self, index: usize) -> Option<usize> {
         if index >= self.nnz {
             return None;
         }
@@ -235,7 +269,7 @@ where N: Num
     /// # Returns
     /// - `N` - 削除した要素の値
     #[inline]
-    pub fn remove(&mut self, index: usize) -> N {
+    fn remove(&mut self, index: usize) -> N {
         debug_assert!(index < self.len, "index out of bounds");
         
         // 論理的な要素数は常に1つ減る
@@ -295,7 +329,7 @@ where N: Num
     }
 
     #[inline]
-    pub fn from_vec(vec: Vec<N>) -> Self {
+    fn from_vec(vec: Vec<N>) -> Self {
         let mut zero_sp_vec = ZeroSpVec::with_capacity(vec.len());
         for entry in vec {
             zero_sp_vec.push(entry);
@@ -304,7 +338,35 @@ where N: Num
     }
 
     #[inline]
-    pub fn iter(&self) -> ZeroSpVecIter<N> {
+    fn from_raw_iter(iter: impl Iterator<Item = (usize, N)>) -> Self {
+        let mut zero_sp_vec = ZeroSpVec::with_capacity(iter.size_hint().0);
+        for (index, value) in iter {
+            unsafe {
+                zero_sp_vec.raw_push(index, value);
+            }
+            zero_sp_vec.len += 1;
+        }
+        zero_sp_vec
+    }
+
+    /// Build from sparse iterator that yields only non-zero elements (idx, value).
+    /// This avoids allocating a full dense Vec when most entries are zero.
+    #[inline]
+    fn from_sparse_iter(iter: impl Iterator<Item = (usize, N)>) -> Self {
+        let mut zero_sp_vec = ZeroSpVec::new();
+        for (index, value) in iter {
+            if value != N::zero() {
+                unsafe {
+                    zero_sp_vec.raw_push(index, value);
+                }
+                zero_sp_vec.len += 1;
+            }
+        }
+        zero_sp_vec
+    }
+
+    #[inline]
+    fn iter(&self) -> ZeroSpVecIter<N> {
         ZeroSpVecIter {
             vec: self,
             pos: 0,
@@ -312,7 +374,7 @@ where N: Num
     }
 
     #[inline]
-    pub fn raw_iter(&self) -> ZeroSpVecRawIter<N> {
+    fn raw_iter(&self) -> ZeroSpVecRawIter<N> {
         ZeroSpVecRawIter {
             vec: self,
             pos: 0,
@@ -428,10 +490,38 @@ where N: Num
             None
         }
     }
-    
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.vec.nnz(), Some(self.vec.len()))
+    }
 }
 
+impl<T> From<Vec<T>> for ZeroSpVec<T>
+where T: Num
+{
+    #[inline]
+    fn from(vec: Vec<T>) -> Self {
+        ZeroSpVec::from_vec(vec)
+    }
+}
 
+impl<'a, N> From<ZeroSpVecRawIter<'a, N>> for ZeroSpVec<N>
+where
+    N: Num + Copy,
+{
+    #[inline]
+    fn from(iter: ZeroSpVecRawIter<'a, N>) -> Self {
+        let mut vec = ZeroSpVec::new();
+        for (idx, val) in iter {
+            unsafe {
+                vec.raw_push(idx, *val);
+            }
+            vec.len += 1;
+        }
+        vec
+    }
+}
 
 
 
@@ -571,6 +661,17 @@ where N: Num
     #[inline]
     fn clone(&self) -> Self {
         unsafe {
+            // If cap == 0 (no allocation) or cap == usize::MAX (ZST marker),
+            // return a dangling-pointer RawZeroSpVec without allocating.
+            if self.cap == 0 || self.cap == usize::MAX {
+                return RawZeroSpVec {
+                    val_ptr: NonNull::dangling(),
+                    ind_ptr: NonNull::dangling(),
+                    cap: self.cap,
+                    _marker: PhantomData,
+                };
+            }
+
             let val_elem_size = mem::size_of::<N>();
             let ind_elem_size = mem::size_of::<usize>();
 
@@ -586,7 +687,7 @@ where N: Num
             }
             ptr::copy_nonoverlapping(self.val_ptr.as_ptr(), new_val_ptr, self.cap);
             ptr::copy_nonoverlapping(self.ind_ptr.as_ptr(), new_ind_ptr, self.cap);
-            
+
             RawZeroSpVec {
                 val_ptr: NonNull::new_unchecked(new_val_ptr),
                 ind_ptr: NonNull::new_unchecked(new_ind_ptr),
@@ -606,6 +707,11 @@ where N: Num
     #[inline]
     fn drop(&mut self) {
         unsafe {
+            // If no allocation was performed (cap == 0) or this is a ZST marker (usize::MAX), skip deallocation.
+            if self.cap == 0 || self.cap == usize::MAX {
+                return;
+            }
+
             let val_elem_size = mem::size_of::<N>();
             let ind_elem_size = mem::size_of::<usize>();
 

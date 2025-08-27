@@ -1,0 +1,40 @@
+{
+    "jpLsp.applyAllLanguages": true,
+    "jpLsp.semantic.enable": true,
+    "editor.semanticTokenColorCustomizations": {
+        "rules": {
+            "noun": {
+                "foreground": "#FFD700" // 名詞: 定義系のゴールド
+            },
+            "pronoun": {
+                "foreground": "#9CDCFE" // 代名詞: 変数と同じ色
+            },
+            "noun": {
+                "foreground": "#CE9178" // 名詞: 文字列と同じ色
+            },
+            "pronoun": {
+                "foreground": "#9CDCFE" // 代名詞: 変数と同じ色
+            },
+            "verb": {
+                "foreground": "#4ADE80" // 動詞: 明るいグリーン
+            },
+            "adjective": {
+                "foreground": "#CE9178" // 形容詞: 文字列と同じ色
+            },
+            "particle": {
+                "foreground": "#9CDCFE" // 助詞: 変数と同じ色
+            },
+            "auxiliary": {
+                "foreground": "#EC4899" // 助動詞: おしゃれなピンク
+            },
+            "symbol": {
+                "foreground": "#F43F5E" // 記号: アクセントのレッド
+            },
+            "other": {
+                "foreground": "#64748B" // その他: 落ち着いたグレー
+            }
+            }
+        }
+    },
+    "jpLsp.cli.args": ""
+}
