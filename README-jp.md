@@ -32,7 +32,7 @@
 Cargo.toml
 ```toml
 [dependencies]
-tf-idf-vectorizer = "0.4.0"  # 本READMEは `v0.4.x` 向け
+tf-idf-vectorizer = "0.3.0"  # 本READMEは `v0.3.x` 向け
 ```
 
 ## 基本的な使い方

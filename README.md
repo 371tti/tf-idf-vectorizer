@@ -32,7 +32,7 @@ Supports everything from corpus construction → TF calculation → IDF calculat
 Cargo.toml
 ```toml
 [dependencies]
-tf-idf-vectorizer = "0.4.0"  # This README is for v0.4.x
+tf-idf-vectorizer = "0.3.0"  # This README is for v0.3.x
 ```
 
 ## Basic Usage
