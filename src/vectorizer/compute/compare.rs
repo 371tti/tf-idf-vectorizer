@@ -33,8 +33,9 @@ impl Compare<u8> for DefaultCompare {
         // NOTE: 元は u32::MAX で割っていたため常に 0 になり比較不能だった。
         // u8 の量子化レンジに合わせ u8::MAX を使用。
         let max = u8::MAX as u32;
+        // Normalize dot product to [0, 1] range for quantized u8 values.
         vec.zip(other)
-            .map(|(a, b)| (( (a as u32).mul_add(b as u32, max - 1) ) / max) as f64)
+            .map(|(a, b)| ((a as u32 * b as u32) as f64 / max as f64))
             .sum()
     }
 
