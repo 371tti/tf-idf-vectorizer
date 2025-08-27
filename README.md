@@ -20,7 +20,7 @@ Supports everything from corpus construction → TF calculation → IDF calculat
 - Environment
   - OS: Windows 11 Pro 23H2
   - CPU: i9-11900K @ 3.5GHz AVX512 enabled
-  - RAM: 16GB + 32GB, DDR5 - 2800, 1-1
+  - RAM: 16GB + 32GB, DDR4 - 2800, 1-1
 - Target
   - Wikipedia JP random 100k docs
   - cosine similarity search
