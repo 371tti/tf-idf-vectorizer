@@ -337,6 +337,7 @@ where N: Num
         zero_sp_vec
     }
 
+    // まじでunsafeにするべき
     #[inline]
     fn from_raw_iter(iter: impl Iterator<Item = (usize, N)>, len: usize) -> Self {
         let mut zero_sp_vec = ZeroSpVec::with_capacity(iter.size_hint().0);
@@ -351,6 +352,7 @@ where N: Num
 
     /// Build from sparse iterator that yields only non-zero elements (idx, value).
     /// This avoids allocating a full dense Vec when most entries are zero.
+    /// unsafeにするべき
     #[inline]
     fn from_sparse_iter(iter: impl Iterator<Item = (usize, N)>, len: usize) -> Self {
         let mut zero_sp_vec = ZeroSpVec::new();
