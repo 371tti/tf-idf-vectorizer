@@ -230,6 +230,9 @@ where N: Num
 
     #[inline]
     fn get(&self, index: usize) -> Option<&N> {
+        if index >= self.len {
+            return None;
+        }
         match self.ind_binary_search(&index) {
             Ok(idx) => {
                 unsafe {
