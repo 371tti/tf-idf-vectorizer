@@ -45,8 +45,8 @@ where N: Num
     fn get_ind(&self, index: usize) -> Option<usize>;
     fn remove(&mut self, index: usize) -> N;
     fn from_vec(vec: Vec<N>) -> Self;
-    fn from_raw_iter(iter: impl Iterator<Item = (usize, N)>) -> Self;
-    fn from_sparse_iter(iter: impl Iterator<Item = (usize, N)>) -> Self;
+    fn from_raw_iter(iter: impl Iterator<Item = (usize, N)>, len: usize) -> Self;
+    fn from_sparse_iter(iter: impl Iterator<Item = (usize, N)>, len: usize) -> Self;
     fn iter(&self) -> ZeroSpVecIter<N>;
     fn raw_iter(&self) -> ZeroSpVecRawIter<N>;
 }
@@ -338,30 +338,30 @@ where N: Num
     }
 
     #[inline]
-    fn from_raw_iter(iter: impl Iterator<Item = (usize, N)>) -> Self {
+    fn from_raw_iter(iter: impl Iterator<Item = (usize, N)>, len: usize) -> Self {
         let mut zero_sp_vec = ZeroSpVec::with_capacity(iter.size_hint().0);
         for (index, value) in iter {
             unsafe {
                 zero_sp_vec.raw_push(index, value);
             }
-            zero_sp_vec.len += 1;
         }
+        zero_sp_vec.len = len;
         zero_sp_vec
     }
 
     /// Build from sparse iterator that yields only non-zero elements (idx, value).
     /// This avoids allocating a full dense Vec when most entries are zero.
     #[inline]
-    fn from_sparse_iter(iter: impl Iterator<Item = (usize, N)>) -> Self {
+    fn from_sparse_iter(iter: impl Iterator<Item = (usize, N)>, len: usize) -> Self {
         let mut zero_sp_vec = ZeroSpVec::new();
         for (index, value) in iter {
             if value != N::zero() {
                 unsafe {
                     zero_sp_vec.raw_push(index, value);
                 }
-                zero_sp_vec.len += 1;
             }
         }
+        zero_sp_vec.len = len;
         zero_sp_vec
     }
 

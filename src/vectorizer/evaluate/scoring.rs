@@ -124,7 +124,7 @@ where
         // 一度 collect して再利用可能にする
         let (query_iter, _query_denorm) =
             E::tfidf_iter_calc_sparse(tf.raw_iter().map(|(idx, val)| (idx, *val)), tf_denormalize_num, &idf, idf_denormalize_num);
-        let query_vec: ZeroSpVec<N> = ZeroSpVec::from_raw_iter(query_iter);
+        let query_vec: ZeroSpVec<N> = ZeroSpVec::from_raw_iter(query_iter, tf.len());
 
         let mut list = Vec::with_capacity(self.documents.len());
         for doc in &self.documents {
@@ -142,17 +142,16 @@ where
     fn scoring_bm25(&self, freq: TokenFrequency, k1: f64, b: f64) -> Vec<(K, f64)> {
         let (tf, _tf_denormalize_num) = E::tf_vec(&freq, &self.token_dim_sample);
         let k1_p = k1 + 1.0;
-        let rev_avg_p = self.documents.iter().map(|doc| doc.token_sum as f64).sum::<f64>() / self.documents.len() as f64;
+        let avg_l = self.documents.iter().map(|doc| doc.token_sum as f64).sum::<f64>() / self.documents.len() as f64;
 
-        let doc_scores = self.documents.iter().map(|doc| {(
+        let doc_scores: Vec<(K, f64)> = self.documents.iter().map(|doc| {(
             doc.key.clone(),
             tf.raw_iter().map(|(idx, _val)| {
-                let idf: f64 = self.idf.idf_vec.get(idx).copied().unwrap_or(N::zero()).into();
+                let idf: f64 = self.idf.idf_vec.get(idx).copied().unwrap_or(N::zero()).denormalize(self.idf.denormalize_num);
                 let tf: f64 = doc.tf_vec.get(idx).copied().unwrap_or(N::zero()).denormalize(doc.denormalize_num);
-                idf * ((tf * k1_p) / (tf + k1 * (1.0 - b + (b * rev_avg_p))))
+                idf * ((tf * k1_p) / (tf + k1 * (1.0 - b + (b * (doc.token_sum as f64 / avg_l)))))
             }).sum::<f64>()
         )}).collect();
-
         doc_scores
     }
-}
+} 
