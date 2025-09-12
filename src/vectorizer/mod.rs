@@ -8,7 +8,7 @@ pub mod evaluate;
 use num::Num;
 use ::serde::{Deserialize, Serialize};
 
-use crate::{utils::math::vector::{ZeroSpVec, ZeroSpVecTrait}, vectorizer::{compute::compare::{Compare, DefaultCompare}, corpus::Corpus, tfidf::{DefaultTFIDFEngine, TFIDFEngine}, token::TokenFrequency}};
+use crate::{utils::{math::vector::{ZeroSpVec, ZeroSpVecTrait}, normalizer::DeNormalizer}, vectorizer::{compute::compare::{Compare, DefaultCompare}, corpus::Corpus, tfidf::{DefaultTFIDFEngine, TFIDFEngine}, token::TokenFrequency}};
 use std::collections::HashSet;
 
 #[derive(Debug)]
@@ -158,6 +158,33 @@ where
         };
         doc.shrink_to_fit();
         self.documents.push(doc);
+    }
+
+    pub fn get_tf(&self, key: &K) -> Option<&TFVector<N, K>>
+    where
+        K: PartialEq,
+    {
+        self.documents.iter().find(|doc| &doc.key == key)
+    }
+
+    pub fn get_tf_into_token_freq(&self, key: &K) -> Option<TokenFrequency>
+    where
+        K: PartialEq,
+        N: Into<f64>,
+    {
+        if let Some(tf_vec) = self.get_tf(key) {
+            let mut token_freq = TokenFrequency::new();
+            tf_vec.tf_vec.raw_iter().for_each(|(idx, val)| {
+                if let Some(token) = self.token_dim_sample.get(idx) {
+                    let val_f64: f64 = (*val).into();
+                    let token_num: f64 = tf_vec.token_sum.denormalize(tf_vec.denormalize_num) * val_f64;
+                    token_freq.set_token_count(token, token_num as u64);
+                } // 範囲外は無視
+            });
+            Some(token_freq)
+        } else {
+            None
+        }
     }
 
     /// 参照されてるコーパスを更新

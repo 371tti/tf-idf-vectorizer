@@ -28,7 +28,7 @@ lang [ [en](./README.md) | ja ]
   - tokenize=0.00ms 
   - build_refs=0.00ms 
   - tf_build=0.00ms 
-  - score=354.53ms 
+  - score=354.53ms e
   - total=354.53ms
 
 ## セットアップ
@@ -58,7 +58,7 @@ fn main() {
 
     // vectorizerにドキュメントを挿入
     vectorizer.add_doc("doc1".to_string(), &freq1);
-    vectorizer.add_doc("doc2".to_string(), &freq2);
+    vectorizer.add_doc("doc2".to_string(), &freq2);e
 
     // query用のtoken頻度を用意
     let mut query_tokens = TokenFrequency::new();

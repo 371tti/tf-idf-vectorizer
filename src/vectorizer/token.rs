@@ -345,6 +345,44 @@ impl TokenFrequency {
         self.token_count.len() as f64 / self.total_token_count as f64
     }
 
+    /// 確率分布 P(token) を取得します（所有文字列版）
+    /// total が 0 の場合は空ベクタを返します
+    #[inline]
+    pub fn probability_vector(&self) -> Vec<(String, f64)> {
+        if self.total_token_count == 0 {
+            return Vec::new();
+        }
+        let total = self.total_token_count as f64;
+        self.token_count
+            .iter()
+            .map(|(token, &count)| (token.clone(), (count as f64) / total))
+            .collect()
+    }
+
+    /// 確率分布 P(token) を取得します（&str 参照版）
+    /// total が 0 の場合は空ベクタを返します
+    #[inline]
+    pub fn probability_vector_ref_str(&self) -> Vec<(&str, f64)> {
+        if self.total_token_count == 0 {
+            return Vec::new();
+        }
+        let total = self.total_token_count as f64;
+        self.token_count
+            .iter()
+            .map(|(token, &count)| (token.as_str(), (count as f64) / total))
+            .collect()
+    }
+
+    /// 特定トークンの確率 P(token) を返します
+    /// total が 0 の場合は 0.0 を返します
+    #[inline]
+    pub fn probability(&self, token: &str) -> f64 {
+        if self.total_token_count == 0 {
+            return 0.0;
+        }
+        (self.token_count(token) as f64) / (self.total_token_count as f64)
+    }
+
     /// カウントを全リセットします
     #[inline]
     pub fn clear(&mut self) {

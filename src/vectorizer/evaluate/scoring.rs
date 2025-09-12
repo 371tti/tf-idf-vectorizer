@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use num::Num;
 
-use crate::{utils::math::vector::{ZeroSpVec, ZeroSpVecTrait}, vectorizer::{compute::compare::{Compare, DefaultCompare}, tfidf::TFIDFEngine, token::TokenFrequency, TFIDFVectorizer}};
+use crate::{utils::{math::vector::{ZeroSpVec, ZeroSpVecTrait}, normalizer::DeNormalizer}, vectorizer::{compute::compare::{Compare, DefaultCompare}, tfidf::TFIDFEngine, token::TokenFrequency, TFIDFVectorizer}};
 
 /// 検索クエリの種類を定義する列挙型
 pub enum SimilarityQuery {
@@ -12,18 +12,9 @@ pub enum SimilarityQuery {
     /// コサイン類似度
     /// 向きのみを考慮した類似度
     CosineSimilarity(TokenFrequency),
-    /// ユークリッド距離
-    /// ベクトル空間上での直線距離を用いた類似度評価
-    /// トークン頻度ベクトル間の距離を計算して、文書間の類似度を測定する
-    EuclideanDistance(TokenFrequency),
-    /// マンハッタン距離
-    /// 各次元の差の絶対値の総和を用いた類似度評価
-    /// トークン頻度ベクトル間の距離を計算して、文書間の類似度を測定する
-    ManhattanDistance(TokenFrequency),
-    /// チェビシェフ距離
-    /// 各次元の差の最大値を用いた類似度評価
-    /// トークン頻度ベクトル間の距離を計算して、文書間の類似度を測定する
-    ChebyshevDistance(TokenFrequency),
+    /// BM25
+    /// ドキュメントの長さを考慮した類似度
+    BM25(TokenFrequency, f64, f64), // (k1, b)
 }
 
 /// 検索結果を格納する構造体
@@ -76,7 +67,7 @@ where
 impl<'a, N, K, E> TFIDFVectorizer<'a, N, K, E>
 where
     K: Clone,
-    N: Num + Copy,
+    N: Num + Copy + Into<f64> + DeNormalizer,
     E: TFIDFEngine<N>,
     DefaultCompare: Compare<N>,
 {
@@ -84,9 +75,7 @@ where
         let result = match query {
             SimilarityQuery::Dot(freq) => self.scoring_dot(freq),
             SimilarityQuery::CosineSimilarity(freq) => self.scoring_cosine(freq),
-            SimilarityQuery::EuclideanDistance(freq) => self.scoring_euclidean(freq),
-            SimilarityQuery::ManhattanDistance(freq) => self.scoring_manhattan(freq),
-            SimilarityQuery::ChebyshevDistance(freq) => self.scoring_chebyshev(freq),
+            SimilarityQuery::BM25(freq, k1, b) => self.scoring_bm25(freq, k1, b),
         };
 
         Hits { list: result }
@@ -97,7 +86,7 @@ where
 impl<'a, N, K, E> TFIDFVectorizer<'a, N, K, E>
 where
     K: Clone,
-    N: Num + Copy,
+    N: Num + Copy + Into<f64> + DeNormalizer,
     E: TFIDFEngine<N>,
     DefaultCompare: Compare<N>,
 {
@@ -150,69 +139,20 @@ where
         list
     }
 
-    fn scoring_euclidean(&self, freq: TokenFrequency) -> Vec<(K, f64)> {
-        let (tf, tf_denormalize_num) = E::tf_vec(&freq, &self.token_dim_sample);
-        let (idf, idf_denormalize_num) = E::idf_vec(self.corpus_ref, &self.token_dim_sample);
+    fn scoring_bm25(&self, freq: TokenFrequency, k1: f64, b: f64) -> Vec<(K, f64)> {
+        let (tf, _tf_denormalize_num) = E::tf_vec(&freq, &self.token_dim_sample);
+        let k1_p = k1 + 1.0;
+        let rev_avg_p = self.documents.iter().map(|doc| doc.token_sum as f64).sum::<f64>() / self.documents.len() as f64;
 
-        // 一度 collect して再利用可能にする
-        let (query_iter, query_denorm) =
-            E::tfidf_iter_calc(tf.iter().copied(), tf_denormalize_num, idf.iter().copied(), idf_denormalize_num);
-        let query_vec: Vec<N> = query_iter.collect();
+        let doc_scores = self.documents.iter().map(|doc| {(
+            doc.key.clone(),
+            tf.raw_iter().map(|(idx, _val)| {
+                let idf: f64 = self.idf.idf_vec.get(idx).copied().unwrap_or(N::zero()).into();
+                let tf: f64 = doc.tf_vec.get(idx).copied().unwrap_or(N::zero()).denormalize(doc.denormalize_num);
+                idf * ((tf * k1_p) / (tf + k1 * (1.0 - b + (b * rev_avg_p))))
+            }).sum::<f64>()
+        )}).collect();
 
-        let mut list = Vec::with_capacity(self.documents.len());
-        for doc in &self.documents {
-            let (doc_iter, doc_denorm) =
-                E::tfidf_iter_calc(doc.tf_vec.iter().copied(), doc.denormalize_num, idf.iter().copied(), idf_denormalize_num);
-
-            // Vec からイテレータを再生成して渡す（copied() はプリミティブでほぼコスト無し）
-            let dot = DefaultCompare::euclidean_distance(query_vec.iter().copied(), doc_iter);
-            let score = dot * query_denorm * doc_denorm;
-            list.push((doc.key.clone(), score));
-        }
-        list
-    }
-
-    fn scoring_manhattan(&self, freq: TokenFrequency) -> Vec<(K, f64)> {
-        let (tf, tf_denormalize_num) = E::tf_vec(&freq, &self.token_dim_sample);
-        let (idf, idf_denormalize_num) = E::idf_vec(self.corpus_ref, &self.token_dim_sample);
-
-        // 一度 collect して再利用可能にする
-        let (query_iter, query_denorm) =
-            E::tfidf_iter_calc(tf.iter().copied(), tf_denormalize_num, idf.iter().copied(), idf_denormalize_num);
-        let query_vec: Vec<N> = query_iter.collect();
-
-        let mut list = Vec::with_capacity(self.documents.len());
-        for doc in &self.documents {
-            let (doc_iter, doc_denorm) =
-                E::tfidf_iter_calc(doc.tf_vec.iter().copied(), doc.denormalize_num, idf.iter().copied(), idf_denormalize_num);
-
-            // Vec からイテレータを再生成して渡す（copied() はプリミティブでほぼコスト無し）
-            let dot = DefaultCompare::manhattan_distance(query_vec.iter().copied(), doc_iter);
-            let score = dot * query_denorm * doc_denorm;
-            list.push((doc.key.clone(), score));
-        }
-        list
-    }
-
-    fn scoring_chebyshev(&self, freq: TokenFrequency) -> Vec<(K, f64)> {
-        let (tf, tf_denormalize_num) = E::tf_vec(&freq, &self.token_dim_sample);
-        let (idf, idf_denormalize_num) = E::idf_vec(self.corpus_ref, &self.token_dim_sample);
-
-        // 一度 collect して再利用可能にする
-        let (query_iter, query_denorm) =
-            E::tfidf_iter_calc(tf.iter().copied(), tf_denormalize_num, idf.iter().copied(), idf_denormalize_num);
-        let query_vec: Vec<N> = query_iter.collect();
-
-        let mut list = Vec::with_capacity(self.documents.len());
-        for doc in &self.documents {
-            let (doc_iter, doc_denorm) =
-                E::tfidf_iter_calc(doc.tf_vec.iter().copied(), doc.denormalize_num, idf.iter().copied(), idf_denormalize_num);
-
-            // Vec からイテレータを再生成して渡す（copied() はプリミティブでほぼコスト無し）
-            let dot = DefaultCompare::chebyshev_distance(query_vec.iter().copied(), doc_iter);
-            let score = dot * query_denorm * doc_denorm;
-            list.push((doc.key.clone(), score));
-        }
-        list
+        doc_scores
     }
 }
