@@ -60,13 +60,13 @@ impl TFIDFEngine<f32> for DefaultTFIDFEngine
         let total_count = freq.token_sum() as f32;
         if total_count == 0.0 { return (ZeroSpVec::new(), total_count.into()); }
         let mut raw: Vec<(usize, f32)> = Vec::with_capacity(freq.token_num());
-        let len = raw.len();
+        let len = token_dim_sample.len();
         for (idx, token) in token_dim_sample.iter().enumerate() {
             let count = freq.token_count(token) as f32;
             if count == 0.0 { continue; }
             raw.push((idx, count / total_count));
         }
-        (ZeroSpVec::from_raw_iter(raw.into_iter(), len), total_count.into())
+        (unsafe { ZeroSpVec::from_raw_iter(raw.into_iter(), len) }, total_count.into())
     }
 
     fn tfidf_iter_calc(tf: impl Iterator<Item = f32>, tf_denorm: f64, idf: impl Iterator<Item = f32>, idf_denorm: f64) -> (impl Iterator<Item = f32>, f64) {
@@ -103,13 +103,13 @@ impl TFIDFEngine<f64> for DefaultTFIDFEngine
         let total_count = freq.token_sum() as f64;
         if total_count == 0.0 { return (ZeroSpVec::new(), total_count.into()); }
         let mut raw: Vec<(usize, f64)> = Vec::with_capacity(freq.token_num());
-        let len = raw.len();
+        let len = token_dim_sample.len();
         for (idx, token) in token_dim_sample.iter().enumerate() {
             let count = freq.token_count(token) as f64;
             if count == 0.0 { continue; }
             raw.push((idx, count / total_count));
         }
-        (ZeroSpVec::from_raw_iter(raw.into_iter(), len), total_count.into())
+        (unsafe { ZeroSpVec::from_raw_iter(raw.into_iter(), len) }, total_count.into())
     }
 
     fn tfidf_iter_calc(tf: impl Iterator<Item = f64>, tf_denorm: f64, idf: impl Iterator<Item = f64>, idf_denorm: f64) -> (impl Iterator<Item = f64>, f64) {
@@ -154,14 +154,14 @@ impl TFIDFEngine<u32> for DefaultTFIDFEngine
             if v > max_val { max_val = v; }
             raw.push((idx, v));
         }
-        let len = raw.len();
+        let len = token_dim_sample.len();
         if max_val == 0.0 { return (ZeroSpVec::new(), total_count); }
         let mut vec_u32: Vec<(usize, u32)> = Vec::with_capacity(raw.len());
         for (idx, v) in raw.into_iter() {
             let q = (v / max_val * u32::MAX as f64).ceil() as u32;
             vec_u32.push((idx, q));
         }
-        (ZeroSpVec::from_raw_iter(vec_u32.into_iter(), len), total_count)
+        (unsafe { ZeroSpVec::from_raw_iter(vec_u32.into_iter(), len) }, total_count)
     }
 
     fn tfidf_iter_calc(tf: impl Iterator<Item = u32>, tf_denorm: f64, idf: impl Iterator<Item = u32>, idf_denorm: f64) -> (impl Iterator<Item = u32>, f64) {
@@ -233,17 +233,15 @@ impl TFIDFEngine<u16> for DefaultTFIDFEngine
             if v > max_val { max_val = v; }
             raw.push((idx, v));
         }
-        let len = raw.len();
-        if max_val == 0.0 { // avoid division by zero
-            return (ZeroSpVec::new(), total_count);
-        }
+        let len = token_dim_sample.len();
+        if max_val == 0.0 { return (ZeroSpVec::new(), total_count); }
         // Second pass: normalize into quantized u16 and build sparse vector
         let mut vec_u16: Vec<(usize, u16)> = Vec::with_capacity(raw.len());
         for (idx, v) in raw.into_iter() {
             let q = (v / max_val * u16::MAX as f64).ceil() as u16;
             vec_u16.push((idx, q));
         }
-        (ZeroSpVec::from_raw_iter(vec_u16.into_iter(), len), total_count)
+        (unsafe { ZeroSpVec::from_raw_iter(vec_u16.into_iter(), len) }, total_count)
     }
 
     fn tfidf_iter_calc(tf: impl Iterator<Item = u16>, tf_denorm: f64, idf: impl Iterator<Item = u16>, idf_denorm: f64) -> (impl Iterator<Item = u16>, f64) {
@@ -300,14 +298,14 @@ impl TFIDFEngine<u8> for DefaultTFIDFEngine
             if v > max_val { max_val = v; }
             raw.push((idx, v));
         }
-        let len = raw.len();
+        let len = token_dim_sample.len();
         if max_val == 0.0 { return (ZeroSpVec::new(), total_count); }
         let mut vec_u8: Vec<(usize, u8)> = Vec::with_capacity(raw.len());
         for (idx, v) in raw.into_iter() {
             let q = (v / max_val * u8::MAX as f64).ceil() as u8;
             vec_u8.push((idx, q));
         }
-        (ZeroSpVec::from_raw_iter(vec_u8.into_iter(), len), total_count)
+        (unsafe { ZeroSpVec::from_raw_iter(vec_u8.into_iter(), len) }, total_count)
     }
 
     fn tfidf_iter_calc(tf: impl Iterator<Item = u8>, tf_denorm: f64, idf: impl Iterator<Item = u8>, idf_denorm: f64) -> (impl Iterator<Item = u8>, f64) {

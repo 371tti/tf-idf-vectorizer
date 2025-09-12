@@ -124,7 +124,7 @@ where
         // 一度 collect して再利用可能にする
         let (query_iter, _query_denorm) =
             E::tfidf_iter_calc_sparse(tf.raw_iter().map(|(idx, val)| (idx, *val)), tf_denormalize_num, &idf, idf_denormalize_num);
-        let query_vec: ZeroSpVec<N> = ZeroSpVec::from_raw_iter(query_iter, tf.len());
+        let query_vec: ZeroSpVec<N> = unsafe { ZeroSpVec::from_raw_iter(query_iter, tf.len()) };
 
         let mut list = Vec::with_capacity(self.documents.len());
         for doc in &self.documents {

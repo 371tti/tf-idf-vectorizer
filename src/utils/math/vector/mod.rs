@@ -45,8 +45,8 @@ where N: Num
     fn get_ind(&self, index: usize) -> Option<usize>;
     fn remove(&mut self, index: usize) -> N;
     fn from_vec(vec: Vec<N>) -> Self;
-    fn from_raw_iter(iter: impl Iterator<Item = (usize, N)>, len: usize) -> Self;
-    fn from_sparse_iter(iter: impl Iterator<Item = (usize, N)>, len: usize) -> Self;
+    unsafe fn from_raw_iter(iter: impl Iterator<Item = (usize, N)>, len: usize) -> Self;
+    unsafe fn from_sparse_iter(iter: impl Iterator<Item = (usize, N)>, len: usize) -> Self;
     fn iter(&self) -> ZeroSpVecIter<N>;
     fn raw_iter(&self) -> ZeroSpVecRawIter<N>;
 }
@@ -230,9 +230,6 @@ where N: Num
 
     #[inline]
     fn get(&self, index: usize) -> Option<&N> {
-        if index >= self.len {
-            return None;
-        }
         match self.ind_binary_search(&index) {
             Ok(idx) => {
                 unsafe {
@@ -339,7 +336,7 @@ where N: Num
 
     // まじでunsafeにするべき
     #[inline]
-    fn from_raw_iter(iter: impl Iterator<Item = (usize, N)>, len: usize) -> Self {
+    unsafe fn from_raw_iter(iter: impl Iterator<Item = (usize, N)>, len: usize) -> Self {
         let mut zero_sp_vec = ZeroSpVec::with_capacity(iter.size_hint().0);
         for (index, value) in iter {
             unsafe {
@@ -354,7 +351,7 @@ where N: Num
     /// This avoids allocating a full dense Vec when most entries are zero.
     /// unsafeにするべき
     #[inline]
-    fn from_sparse_iter(iter: impl Iterator<Item = (usize, N)>, len: usize) -> Self {
+    unsafe fn from_sparse_iter(iter: impl Iterator<Item = (usize, N)>, len: usize) -> Self {
         let mut zero_sp_vec = ZeroSpVec::new();
         for (index, value) in iter {
             if value != N::zero() {

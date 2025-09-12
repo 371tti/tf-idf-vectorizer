@@ -1,5 +1,4 @@
 pub trait DeNormalizer {
-    #[inline]
     fn denormalize(&self, denormalize_num: f64) -> f64;
 }
 
