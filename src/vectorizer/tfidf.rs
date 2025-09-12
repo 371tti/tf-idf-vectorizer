@@ -146,7 +146,6 @@ impl TFIDFEngine<u32> for DefaultTFIDFEngine
         let total_count = freq.token_sum() as f64;
         if total_count == 0.0 { return (ZeroSpVec::new(), total_count); }
         let mut raw: Vec<(usize, f64)> = Vec::with_capacity(freq.token_num());
-        let len = raw.len();
         let mut max_val = 0.0f64;
         for (idx, token) in token_dim_sample.iter().enumerate() {
             let count = freq.token_count(token) as f64;
@@ -155,6 +154,7 @@ impl TFIDFEngine<u32> for DefaultTFIDFEngine
             if v > max_val { max_val = v; }
             raw.push((idx, v));
         }
+        let len = raw.len();
         if max_val == 0.0 { return (ZeroSpVec::new(), total_count); }
         let mut vec_u32: Vec<(usize, u32)> = Vec::with_capacity(raw.len());
         for (idx, v) in raw.into_iter() {
@@ -224,7 +224,6 @@ impl TFIDFEngine<u16> for DefaultTFIDFEngine
         let total_count = freq.token_sum() as f64;
         // First pass: compute raw tf values and track max
         let mut raw: Vec<(usize, f64)> = Vec::new();
-        let len = raw.len();
         raw.reserve(freq.token_num());
         let mut max_val = 0.0f64;
         for (idx, token) in token_dim_sample.iter().enumerate() {
@@ -234,6 +233,7 @@ impl TFIDFEngine<u16> for DefaultTFIDFEngine
             if v > max_val { max_val = v; }
             raw.push((idx, v));
         }
+        let len = raw.len();
         if max_val == 0.0 { // avoid division by zero
             return (ZeroSpVec::new(), total_count);
         }
@@ -292,7 +292,6 @@ impl TFIDFEngine<u8> for DefaultTFIDFEngine
         let total_count = freq.token_sum() as f64;
         if total_count == 0.0 { return (ZeroSpVec::new(), total_count); }
         let mut raw: Vec<(usize, f64)> = Vec::with_capacity(freq.token_num());
-        let len = raw.len();
         let mut max_val = 0.0f64;
         for (idx, token) in token_dim_sample.iter().enumerate() {
             let count = freq.token_count(token) as f64;
@@ -301,6 +300,7 @@ impl TFIDFEngine<u8> for DefaultTFIDFEngine
             if v > max_val { max_val = v; }
             raw.push((idx, v));
         }
+        let len = raw.len();
         if max_val == 0.0 { return (ZeroSpVec::new(), total_count); }
         let mut vec_u8: Vec<(usize, u8)> = Vec::with_capacity(raw.len());
         for (idx, v) in raw.into_iter() {
