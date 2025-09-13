@@ -1,3 +1,6 @@
+use ahash::RandomState;
+use indexmap::IndexSet;
+
 use crate::{utils::math::vector::{ZeroSpVec, ZeroSpVecTrait}, vectorizer::{corpus::Corpus, token::TokenFrequency}};
 
 pub trait TFIDFEngine<N>
@@ -11,14 +14,14 @@ where
     /// # Returns
     /// * `Vec<N>` - IDFベクトル
     /// * `denormalize_num` - 正規化解除のための数値
-    fn idf_vec(corpus: &Corpus, token_dim_sample: &[String]) -> (Vec<N>, f64);
+    fn idf_vec(corpus: &Corpus, token_dim_sample: &IndexSet<String, RandomState>) -> (Vec<N>, f64);
     /// TFベクトルを生成するメソッド
     /// # Arguments
     /// * `freq` - トークン頻度
     /// * `token_dim_sample` - トークンの次元サンプル
     /// # Returns
     /// * `(ZeroSpVec<N>, f64)` - TFベクトルと正規化解除のための数値
-    fn tf_vec(freq: &TokenFrequency, token_dim_sample: &[String]) -> (ZeroSpVec<N>, f64);
+    fn tf_vec(freq: &TokenFrequency, token_dim_sample: &IndexSet<String, RandomState>) -> (ZeroSpVec<N>, f64);
     /// TF-IDFを計算するイテレータ
     /// # Arguments
     /// * `tf` - TFベクトルのイテレータ
@@ -45,7 +48,7 @@ impl DefaultTFIDFEngine {
 
 impl TFIDFEngine<f32> for DefaultTFIDFEngine
 {
-    fn idf_vec(corpus: &Corpus, token_dim_sample: &[String]) -> (Vec<f32>, f64) {
+    fn idf_vec(corpus: &Corpus, token_dim_sample: &IndexSet<String, RandomState>) -> (Vec<f32>, f64) {
         let mut idf_vec = Vec::with_capacity(token_dim_sample.len());
         let doc_num = corpus.get_doc_num() as f64;
         for token in token_dim_sample {
@@ -55,16 +58,17 @@ impl TFIDFEngine<f32> for DefaultTFIDFEngine
         (idf_vec, 1.0)
     }
 
-    fn tf_vec(freq: &TokenFrequency, token_dim_sample: &[String]) -> (ZeroSpVec<f32>, f64) {
+    fn tf_vec(freq: &TokenFrequency, token_dim_sample: &IndexSet<String, RandomState>) -> (ZeroSpVec<f32>, f64) {
         // Build sparse TF vector: only non-zero entries are stored
         let total_count = freq.token_sum() as f32;
         if total_count == 0.0 { return (ZeroSpVec::new(), total_count.into()); }
         let mut raw: Vec<(usize, f32)> = Vec::with_capacity(freq.token_num());
         let len = token_dim_sample.len();
+        let inv_total = 1.0f32 / total_count;
         for (idx, token) in token_dim_sample.iter().enumerate() {
             let count = freq.token_count(token) as f32;
             if count == 0.0 { continue; }
-            raw.push((idx, count / total_count));
+            raw.push((idx, count * inv_total));
         }
         (unsafe { ZeroSpVec::from_raw_iter(raw.into_iter(), len) }, total_count.into())
     }
@@ -88,7 +92,7 @@ impl TFIDFEngine<f32> for DefaultTFIDFEngine
 
 impl TFIDFEngine<f64> for DefaultTFIDFEngine
 {
-    fn idf_vec(corpus: &Corpus, token_dim_sample: &[String]) -> (Vec<f64>, f64) {
+    fn idf_vec(corpus: &Corpus, token_dim_sample: &IndexSet<String, RandomState>) -> (Vec<f64>, f64) {
         let mut idf_vec = Vec::with_capacity(token_dim_sample.len());
         let doc_num = corpus.get_doc_num() as f64;
         for token in token_dim_sample {
@@ -98,16 +102,17 @@ impl TFIDFEngine<f64> for DefaultTFIDFEngine
         (idf_vec, 1.0)
     }
 
-    fn tf_vec(freq: &TokenFrequency, token_dim_sample: &[String]) -> (ZeroSpVec<f64>, f64) {
+    fn tf_vec(freq: &TokenFrequency, token_dim_sample: &IndexSet<String, RandomState>) -> (ZeroSpVec<f64>, f64) {
         // Build sparse TF vector: only non-zero entries are stored
         let total_count = freq.token_sum() as f64;
         if total_count == 0.0 { return (ZeroSpVec::new(), total_count.into()); }
         let mut raw: Vec<(usize, f64)> = Vec::with_capacity(freq.token_num());
         let len = token_dim_sample.len();
+        let inv_total = 1.0f64 / total_count;
         for (idx, token) in token_dim_sample.iter().enumerate() {
             let count = freq.token_count(token) as f64;
             if count == 0.0 { continue; }
-            raw.push((idx, count / total_count));
+            raw.push((idx, count * inv_total));
         }
         (unsafe { ZeroSpVec::from_raw_iter(raw.into_iter(), len) }, total_count.into())
     }
@@ -131,7 +136,7 @@ impl TFIDFEngine<f64> for DefaultTFIDFEngine
 
 impl TFIDFEngine<u32> for DefaultTFIDFEngine
 {
-    fn idf_vec(corpus: &Corpus, token_dim_sample: &[String]) -> (Vec<u32>, f64) {
+    fn idf_vec(corpus: &Corpus, token_dim_sample: &IndexSet<String, RandomState>) -> (Vec<u32>, f64) {
         let mut idf_vec = Vec::with_capacity(token_dim_sample.len());
         let doc_num = corpus.get_doc_num() as f64;
         for token in token_dim_sample {
@@ -141,24 +146,26 @@ impl TFIDFEngine<u32> for DefaultTFIDFEngine
         (idf_vec, 1.0)
     }
 
-    fn tf_vec(freq: &TokenFrequency, token_dim_sample: &[String]) -> (ZeroSpVec<u32>, f64) {
+    fn tf_vec(freq: &TokenFrequency, token_dim_sample: &IndexSet<String, RandomState>) -> (ZeroSpVec<u32>, f64) {
         // Build sparse TF vector without allocating dense Vec
         let total_count = freq.token_sum() as f64;
         if total_count == 0.0 { return (ZeroSpVec::new(), total_count); }
         let mut raw: Vec<(usize, f64)> = Vec::with_capacity(freq.token_num());
         let mut max_val = 0.0f64;
+        let inv_total = 1.0f64 / total_count;
         for (idx, token) in token_dim_sample.iter().enumerate() {
             let count = freq.token_count(token) as f64;
             if count == 0.0 { continue; }
-            let v = count / total_count;
+            let v = count * inv_total;
             if v > max_val { max_val = v; }
             raw.push((idx, v));
         }
         let len = token_dim_sample.len();
         if max_val == 0.0 { return (ZeroSpVec::new(), total_count); }
         let mut vec_u32: Vec<(usize, u32)> = Vec::with_capacity(raw.len());
+        let mul_norm = (u32::MAX as f64) / max_val; // == (1/max_val) * u32::MAX
         for (idx, v) in raw.into_iter() {
-            let q = (v / max_val * u32::MAX as f64).ceil() as u32;
+            let q = (v * mul_norm).ceil() as u32;
             vec_u32.push((idx, q));
         }
         (unsafe { ZeroSpVec::from_raw_iter(vec_u32.into_iter(), len) }, total_count)
@@ -198,7 +205,7 @@ impl TFIDFEngine<u32> for DefaultTFIDFEngine
 
 impl TFIDFEngine<u16> for DefaultTFIDFEngine
 {
-    fn idf_vec(corpus: &Corpus, token_dim_sample: &[String]) -> (Vec<u16>, f64) {
+    fn idf_vec(corpus: &Corpus, token_dim_sample: &IndexSet<String, RandomState>) -> (Vec<u16>, f64) {
         let mut idf_vec = Vec::with_capacity(token_dim_sample.len());
         let doc_num = corpus.get_doc_num() as f64;
         for token in token_dim_sample {
@@ -219,17 +226,17 @@ impl TFIDFEngine<u16> for DefaultTFIDFEngine
         )
     }
 
-    fn tf_vec(freq: &TokenFrequency, token_dim_sample: &[String]) -> (ZeroSpVec<u16>, f64) {
+    fn tf_vec(freq: &TokenFrequency, token_dim_sample: &IndexSet<String, RandomState>) -> (ZeroSpVec<u16>, f64) {
         // Build sparse TF vector without allocating a dense Vec<f64>
         let total_count = freq.token_sum() as f64;
         // First pass: compute raw tf values and track max
-        let mut raw: Vec<(usize, f64)> = Vec::new();
-        raw.reserve(freq.token_num());
-        let mut max_val = 0.0f64;
+        let mut raw: Vec<(usize, f32)> = Vec::with_capacity(freq.token_num());
+        let mut max_val = 0.0f32;
+    let div_total = (1.0 / total_count) as f32;
         for (idx, token) in token_dim_sample.iter().enumerate() {
-            let count = freq.token_count(token) as f64;
-            if count == 0.0 { continue; }
-            let v = count / total_count;
+            let count = freq.token_count(token);
+            if count == 0 { continue; }
+            let v = count as f32 * div_total;
             if v > max_val { max_val = v; }
             raw.push((idx, v));
         }
@@ -237,8 +244,9 @@ impl TFIDFEngine<u16> for DefaultTFIDFEngine
         if max_val == 0.0 { return (ZeroSpVec::new(), total_count); }
         // Second pass: normalize into quantized u16 and build sparse vector
         let mut vec_u16: Vec<(usize, u16)> = Vec::with_capacity(raw.len());
+    let norm_div_max = (u16::MAX as f32) / max_val; // == (1/max_val) * u16::MAX
         for (idx, v) in raw.into_iter() {
-            let q = (v / max_val * u16::MAX as f64).ceil() as u16;
+            let q = (v * norm_div_max).ceil() as u16;
             vec_u16.push((idx, q));
         }
         (unsafe { ZeroSpVec::from_raw_iter(vec_u16.into_iter(), len) }, total_count)
@@ -264,7 +272,7 @@ impl TFIDFEngine<u16> for DefaultTFIDFEngine
 
 impl TFIDFEngine<u8> for DefaultTFIDFEngine
 {
-    fn idf_vec(corpus: &Corpus, token_dim_sample: &[String]) -> (Vec<u8>, f64) {
+    fn idf_vec(corpus: &Corpus, token_dim_sample: &IndexSet<String, RandomState>) -> (Vec<u8>, f64) {
         let mut idf_vec = Vec::with_capacity(token_dim_sample.len());
         let doc_num = corpus.get_doc_num() as f64;
         for token in token_dim_sample {
@@ -285,27 +293,31 @@ impl TFIDFEngine<u8> for DefaultTFIDFEngine
         )
     }
 
-    fn tf_vec(freq: &TokenFrequency, token_dim_sample: &[String]) -> (ZeroSpVec<u8>, f64) {
+    fn tf_vec(freq: &TokenFrequency, token_dim_sample: &IndexSet<String, RandomState>) -> (ZeroSpVec<u8>, f64) {
         // Build sparse TF vector without allocating dense Vec
-        let total_count = freq.token_sum() as f64;
-        if total_count == 0.0 { return (ZeroSpVec::new(), total_count); }
-        let mut raw: Vec<(usize, f64)> = Vec::with_capacity(freq.token_num());
-        let mut max_val = 0.0f64;
+        let total_count_f64 = freq.token_sum() as f64;
+        if total_count_f64 == 0.0 { return (ZeroSpVec::new(), total_count_f64); }
+        // Use f32 intermediates for u8 to reduce cost and memory
+        let total_count = total_count_f64 as f32;
+        let mut raw: Vec<(usize, f32)> = Vec::with_capacity(freq.token_num());
+        let mut max_val = 0.0f32;
+        let inv_total = 1.0f32 / total_count;
         for (idx, token) in token_dim_sample.iter().enumerate() {
-            let count = freq.token_count(token) as f64;
+            let count = freq.token_count(token) as f32;
             if count == 0.0 { continue; }
-            let v = count / total_count;
+            let v = count * inv_total;
             if v > max_val { max_val = v; }
             raw.push((idx, v));
         }
         let len = token_dim_sample.len();
-        if max_val == 0.0 { return (ZeroSpVec::new(), total_count); }
+        if max_val == 0.0 { return (ZeroSpVec::new(), total_count_f64); }
         let mut vec_u8: Vec<(usize, u8)> = Vec::with_capacity(raw.len());
+        let mul_norm = (u8::MAX as f32) / max_val; // == (1/max_val) * u8::MAX
         for (idx, v) in raw.into_iter() {
-            let q = (v / max_val * u8::MAX as f64).ceil() as u8;
+            let q = (v * mul_norm).ceil() as u8;
             vec_u8.push((idx, q));
         }
-        (unsafe { ZeroSpVec::from_raw_iter(vec_u8.into_iter(), len) }, total_count)
+        (unsafe { ZeroSpVec::from_raw_iter(vec_u8.into_iter(), len) }, total_count_f64)
     }
 
     fn tfidf_iter_calc(tf: impl Iterator<Item = u8>, tf_denorm: f64, idf: impl Iterator<Item = u8>, idf_denorm: f64) -> (impl Iterator<Item = u8>, f64) {

@@ -5,11 +5,12 @@ pub mod serde;
 pub mod compute;
 pub mod evaluate;
 
+use indexmap::IndexSet;
 use num::Num;
 use ::serde::{Deserialize, Serialize};
 
 use crate::{utils::{math::vector::{ZeroSpVec, ZeroSpVecTrait}, normalizer::DeNormalizer}, vectorizer::{compute::compare::{Compare, DefaultCompare}, corpus::Corpus, tfidf::{DefaultTFIDFEngine, TFIDFEngine}, token::TokenFrequency}};
-use std::collections::HashSet;
+use ahash::RandomState;
 
 #[derive(Debug)]
 pub struct TFIDFVectorizer<'a, N = f32, K = String, E = DefaultTFIDFEngine, C = DefaultCompare>
@@ -21,9 +22,7 @@ where
     /// ドキュメントのTFベクトル
     pub documents: Vec<TFVector<N, K>>,
     /// TFベクトルのトークンの次元サンプル
-    pub token_dim_sample: Vec<String>,
-    /// 高速存在判定用の語彙セット (token_dim_sample と常に同期)
-    pub token_dim_set: HashSet<String>,
+    pub token_dim_sample: IndexSet<String, RandomState>,
     /// コーパスの参照
     pub corpus_ref: &'a Corpus,
     /// IDFベクトル
@@ -96,8 +95,7 @@ where
     pub fn new(corpus_ref: &'a Corpus) -> Self {
         let mut instance = Self {
             documents: Vec::new(),
-            token_dim_sample: Vec::new(),
-            token_dim_set: HashSet::new(),
+            token_dim_sample: IndexSet::with_hasher(RandomState::new()),
             corpus_ref,
             idf: IDFVector::new(),
             _marker: std::marker::PhantomData,
@@ -143,9 +141,8 @@ where
         self.add_corpus(doc);
         // 新語彙を差分追加 (O(|doc_vocab|))
         for tok in doc.token_set_ref_str() {
-            if !self.token_dim_set.contains(tok) {
-                self.token_dim_sample.push(tok.to_string());
-                self.token_dim_set.insert(tok.to_string());
+            if !self.token_dim_sample.contains(tok) {
+                self.token_dim_sample.insert(tok.to_string());
             }
         }
 
@@ -175,7 +172,7 @@ where
         if let Some(tf_vec) = self.get_tf(key) {
             let mut token_freq = TokenFrequency::new();
             tf_vec.tf_vec.raw_iter().for_each(|(idx, val)| {
-                if let Some(token) = self.token_dim_sample.get(idx) {
+                if let Some(token) = self.token_dim_sample.get_index(idx) {
                     let val_f64: f64 = (*val).into();
                     let token_num: f64 = tf_vec.token_sum.denormalize(tf_vec.denormalize_num) * val_f64;
                     token_freq.set_token_count(token, token_num as u64);

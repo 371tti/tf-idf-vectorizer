@@ -1,3 +1,5 @@
+use ahash::RandomState;
+use indexmap::IndexSet;
 use num::Num;
 use serde::{ser::SerializeStruct, Deserialize, Serialize};
 
@@ -15,7 +17,7 @@ where
     /// ドキュメントのTFベクトル
     pub documents: Vec<TFVector<N, K>>,
     /// TFベクトルのトークンの次元サンプル
-    pub token_dim_sample: Vec<String>,
+    pub token_dim_sample: IndexSet<String, RandomState>,
     /// IDFベクトル
     pub idf: IDFVector<N>,
     #[serde(default, skip_serializing, skip_deserializing)]
@@ -37,7 +39,6 @@ where
         let mut instance = TFIDFVectorizer {
             documents: self.documents,
             token_dim_sample: self.token_dim_sample.clone(),
-            token_dim_set: self.token_dim_sample.iter().cloned().collect(),
             corpus_ref,
             idf: self.idf,
             _marker: std::marker::PhantomData,
