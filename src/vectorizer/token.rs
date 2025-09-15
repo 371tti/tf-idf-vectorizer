@@ -10,12 +10,13 @@ use serde::{Deserialize, Serialize};
 /// 
 /// # Examples
 /// ```
-/// use vectorizer::token::TokenFrequency;
+/// use crate::tf_idf_vectorizer::vectorizer::token::TokenFrequency;
 /// let mut token_freq = TokenFrequency::new();
 /// token_freq.add_token("token1");
 /// token_freq.add_token("token2");
 /// token_freq.add_token("token1");
 /// 
+/// assert_eq!(token_freq.token_count("token1"), 2);
 /// ```
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TokenFrequency {

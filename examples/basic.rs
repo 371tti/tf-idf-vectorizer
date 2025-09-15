@@ -17,7 +17,7 @@ fn main() {
     let mut result = vectorizer.similarity(query);
     result.sort_by_score();
 
-    result.list.iter().for_each(|(k, s)| {
-        println!("doc: {}, score: {}", k, s);
-    });    
+    result.list.iter().for_each(|(k, s, l)| {
+        println!("doc: {}, score: {}, length: {}", k, s, l);
+    });
 }

@@ -492,7 +492,7 @@ fn run_single_query(sudachi_cmd: &str, vectorizer: &mut TFIDFVectorizer<u16>, qu
     let mut tf = TokenFrequency::new();
     tf.add_tokens(&refs);
     let t3 = Instant::now();
-    let query = SimilarityQuery::BM25(tf, 1.2, 0.75);
+    let query = SimilarityQuery::BM25(tf, 1.5, 0.75); // BM25 example
     let mut results = vectorizer.similarity(query);
     results.sort_by_score();
     let t4 = Instant::now();
@@ -503,7 +503,7 @@ fn run_single_query(sudachi_cmd: &str, vectorizer: &mut TFIDFVectorizer<u16>, qu
         t3.duration_since(t2).as_secs_f64()*1000.0,
         t4.duration_since(t3).as_secs_f64()*1000.0,
         t4.duration_since(t0).as_secs_f64()*1000.0);
-    for (key, score) in results.list.iter() { println!("{}\t{}", score, key); }
+    for (key, score, _) in results.list.iter() { println!("{}\t{}", score, key); }
 }
 
 fn run_interactive(sudachi_cmd: &str, vectorizer: &mut TFIDFVectorizer<u16>) {
@@ -530,7 +530,7 @@ fn run_interactive(sudachi_cmd: &str, vectorizer: &mut TFIDFVectorizer<u16>) {
         let mut tf = TokenFrequency::new();
         tf.add_tokens(&refs);
         let t3 = Instant::now();
-        let query = SimilarityQuery::BM25(tf, 1.2, 0.75);
+        let query = SimilarityQuery::BM25(tf, 1.5, 0.75); // BM25 example
         let mut results = vectorizer.similarity(query);
         results.sort_by_score();
         let t4 = Instant::now();
@@ -541,8 +541,8 @@ fn run_interactive(sudachi_cmd: &str, vectorizer: &mut TFIDFVectorizer<u16>) {
             t3.duration_since(t2).as_secs_f64()*1000.0,
             t4.duration_since(t3).as_secs_f64()*1000.0,
             t4.duration_since(start).as_secs_f64()*1000.0);
-        for (key, score) in results.list.iter().take(20) { // 上位20件
-            println!("{score}\t{key}");
+        for (key, score, doc_len) in results.list.iter().take(20) { // 上位20件
+            println!("{score}\t\t{doc_len}\t\t{key}");
         }
     }
 }

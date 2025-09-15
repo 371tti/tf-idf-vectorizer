@@ -1,36 +1,40 @@
-use std::fmt::Debug;
+use std::{cmp::Ordering, fmt::Debug};
 
-use num::Num;
+use num::{pow::Pow, Num};
 
-use crate::{utils::{math::vector::{ZeroSpVec, ZeroSpVecTrait}, normalizer::DeNormalizer}, vectorizer::{compute::compare::{Compare, DefaultCompare}, tfidf::TFIDFEngine, token::TokenFrequency, TFIDFVectorizer}};
+use crate::{utils::{math::vector::ZeroSpVecTrait, normalizer::DeNormalizer}, vectorizer::{tfidf::TFIDFEngine, token::TokenFrequency, TFIDFVectorizer}};
 
 /// 検索クエリの種類を定義する列挙型
 pub enum SimilarityQuery {
-    /// 内積
+    /// dot product
     /// 向きと大きさを考慮した類似度
     Dot(TokenFrequency),
-    /// コサイン類似度
+    /// cosine similarity
     /// 向きのみを考慮した類似度
     CosineSimilarity(TokenFrequency),
     /// BM25
     /// ドキュメントの長さを考慮した類似度
+    /// param k1: term frequencyの飽和を制御するパラメータ
+    /// param b: ドキュメント長の正規化を制御するパラメータ
     BM25(TokenFrequency, f64, f64), // (k1, b)
 }
 
 /// 検索結果を格納する構造体
 pub struct Hits<K> 
 {
-    pub list: Vec<(K, f64)>,
+    /// (ドキュメントID, スコア, ドキュメント長)
+    /// (Document ID, Score, Document Length)
+    pub list: Vec<(K, f64, u64)>, // (key, score, document length)
 }
 
 impl<K> Hits<K> {
-    pub fn new(vec: Vec<(K, f64)>) -> Self {
+    pub fn new(vec: Vec<(K, f64, u64)>) -> Self {
         Hits { list: vec }
     }
 
     pub fn sort_by_score(&mut self) -> &mut Self {
     // NaN を除外 (必要なら末尾へ送る運用も可)
-    self.list.retain(|(_, s)| !s.is_nan());
+    self.list.retain(|(_, s, _)| !s.is_nan());
     // total_cmp で反射律/推移律を満たす全順序 (NaN 排除済みなので安全)
     self.list.sort_by(|a, b| b.1.total_cmp(&a.1));
     self
@@ -38,7 +42,7 @@ impl<K> Hits<K> {
 
     pub fn sort_by_score_rev(&mut self) -> &mut Self{
         // NaN を除外 (必要なら末尾へ送る運用も可)
-        self.list.retain(|(_, s)| !s.is_nan());
+        self.list.retain(|(_, s, _)| !s.is_nan());
         // total_cmp で反射律/推移律を満たす全順序 (NaN 排除済みなので安全)
         self.list.sort_by(|a, b| a.1.total_cmp(&b.1));
         self
@@ -53,8 +57,8 @@ where
         if f.alternate() {
             // Pretty print with alternate formatting: each hit on a new line
             writeln!(f, "Hits [")?;
-            for (key, score) in &self.list {
-                writeln!(f, "    {:?}: {:.6}", key, score)?;
+            for (key, score, doc_len) in &self.list {
+                writeln!(f, "    {:?}: {:.6} (len: {})", key, score, doc_len)?;
             }
             write!(f, "]")
         } else {
@@ -69,7 +73,6 @@ where
     K: Clone,
     N: Num + Copy + Into<f64> + DeNormalizer,
     E: TFIDFEngine<N>,
-    DefaultCompare: Compare<N>,
 {
     pub fn similarity(&self, query: SimilarityQuery) -> Hits<K> {
         let result = match query {
@@ -88,69 +91,89 @@ where
     K: Clone,
     N: Num + Copy + Into<f64> + DeNormalizer,
     E: TFIDFEngine<N>,
-    DefaultCompare: Compare<N>,
 {
-    fn scoring_dot(&self, freq: TokenFrequency) -> Vec<(K, f64)> {
-        // まずtfをTF vector に transform して
-        // それから検索域の次元にあわせてIDFを作成
-        // クエリのtfidfを計算
-        // それを使ってドキュメントのTFIDFとドット積を計算
-        // tf1 * tf2 * idf^2 
+    /// 内積によるスコアリング
+    /// scoring by dot product
+    fn scoring_dot(&self, freq: TokenFrequency) -> Vec<(K, f64, u64)> {
         let (tf, tf_denormalize_num) = E::tf_vec(&freq, &self.token_dim_sample);
-        let (idf, idf_denormalize_num) = E::idf_vec(self.corpus_ref, &self.token_dim_sample);
 
-        // 一度 collect して再利用可能にする
-        let (query_iter, query_denorm) =
-            E::tfidf_iter_calc(tf.iter().copied(), tf_denormalize_num, idf.iter().copied(), idf_denormalize_num);
-        let query_vec: Vec<N> = query_iter.collect();
-
-        let mut list = Vec::with_capacity(self.documents.len());
-        for doc in &self.documents {
-            let (doc_iter, doc_denorm) =
-                E::tfidf_iter_calc(doc.tf_vec.iter().copied(), doc.denormalize_num, idf.iter().copied(), idf_denormalize_num);
-
-            // Vec からイテレータを再生成して渡す（copied() はプリミティブでほぼコスト無し）
-            let dot = DefaultCompare::dot(query_vec.iter().copied(), doc_iter);
-            let score = dot * query_denorm * doc_denorm;
-            list.push((doc.key.clone(), score));
-        }
-        list
+        let doc_scores: Vec<(K, f64, u64)> = self.documents.iter().map(|doc| {(
+            doc.key.clone(),
+            tf.raw_iter().map(|(idx, val)| {
+                let idf: f64 = self.idf.idf_vec.get(idx).copied().unwrap_or(N::zero()).denormalize(self.idf.denormalize_num);
+                let tf2: f64 = doc.tf_vec.get(idx).copied().unwrap_or(N::zero()).denormalize(doc.denormalize_num);
+                let tf1: f64 = val.denormalize(tf_denormalize_num);
+                // 内積の計算
+                // dot calculation
+                tf1 * tf2 * (idf * idf)
+            }).sum::<f64>(),
+            doc.token_sum
+        )}).collect();
+        doc_scores
     }
 
-    fn scoring_cosine(&self, freq: TokenFrequency) -> Vec<(K, f64)> {
-        let (tf, tf_denormalize_num) = E::tf_vec(&freq, &self.token_dim_sample);
-        let (idf, idf_denormalize_num) = E::idf_vec(self.corpus_ref, &self.token_dim_sample);
-
-        // 一度 collect して再利用可能にする
-        let (query_iter, _query_denorm) =
-            E::tfidf_iter_calc_sparse(tf.raw_iter().map(|(idx, val)| (idx, *val)), tf_denormalize_num, &idf, idf_denormalize_num);
-        let query_vec: ZeroSpVec<N> = unsafe { ZeroSpVec::from_raw_iter(query_iter, tf.len()) };
-
-        let mut list = Vec::with_capacity(self.documents.len());
-        for doc in &self.documents {
-            let (doc_iter, _doc_denorm) =
-                E::tfidf_iter_calc_sparse(doc.tf_vec.raw_iter().map(|(idx, val)| (idx, *val)), doc.denormalize_num, &idf, idf_denormalize_num);
-
-            // Vec からイテレータを再生成して渡す（copied() はプリミティブでほぼコスト無し）
-            let dot = DefaultCompare::cosine_similarity(query_vec.raw_iter().map(|(idx, val)| (idx, *val)), doc_iter);
-            let score = dot;
-            list.push((doc.key.clone(), score));
-        }
-        list
+    /// コサイン類似度によるスコアリング
+    /// scoring by cosine similarity
+    /// cosθ = A・B / (|A||B|)
+    fn scoring_cosine(&self, freq: TokenFrequency) -> Vec<(K, f64, u64)> {
+        let (tf_1, tf_denormalize_num) = E::tf_vec(&freq, &self.token_dim_sample);
+        let doc_scores: Vec<(K, f64, u64)> = self.documents.iter().map(|doc| {
+            let tf_1 = tf_1.raw_iter();
+            let tf_2 = doc.tf_vec.raw_iter();
+            let mut a_it = tf_1.fuse();
+            let mut b_it = tf_2.fuse();
+            let mut a_next = a_it.next();
+            let mut b_next = b_it.next();
+            let mut norm_a = 0_f64;
+            let mut norm_b = 0_f64;
+            let mut dot = 0_f64;
+            while let (Some((ia, va)), Some((ib, vb))) = (a_next, b_next) {
+                match ia.cmp(&ib) {
+                    Ordering::Equal => {
+                        let idf = self.idf.idf_vec.get(ia).copied().unwrap_or(N::zero()).denormalize(self.idf.denormalize_num);
+                        norm_a += (va.denormalize(tf_denormalize_num) * idf).pow(2);
+                        norm_b += (vb.denormalize(doc.denormalize_num) * idf).pow(2);
+                        dot += va.denormalize(tf_denormalize_num) * vb.denormalize(doc.denormalize_num) * (idf * idf);
+                        a_next = a_it.next();
+                        b_next = b_it.next();
+                    }
+                    Ordering::Less => {
+                        norm_a += (va.denormalize(tf_denormalize_num) * self.idf.idf_vec.get(ia).copied().unwrap_or(N::zero()).denormalize(self.idf.denormalize_num)).pow(2);
+                        a_next = a_it.next();
+                    }
+                    Ordering::Greater => {
+                        norm_b += (vb.denormalize(doc.denormalize_num) * self.idf.idf_vec.get(ib).copied().unwrap_or(N::zero()).denormalize(self.idf.denormalize_num)).pow(2);
+                        b_next = b_it.next();
+                    }
+                }
+            }
+            let norm_a = norm_a.sqrt();
+            let norm_b = norm_b.sqrt();
+            let score = dot / (norm_a * norm_b);
+            (doc.key.clone(), score, doc.token_sum)
+        }).collect();
+        doc_scores
     }
 
-    fn scoring_bm25(&self, freq: TokenFrequency, k1: f64, b: f64) -> Vec<(K, f64)> {
+    /// BM25によるスコアリング
+    /// scoring by BM25
+    fn scoring_bm25(&self, freq: TokenFrequency, k1: f64, b: f64) -> Vec<(K, f64, u64)> {
         let (tf, _tf_denormalize_num) = E::tf_vec(&freq, &self.token_dim_sample);
         let k1_p = k1 + 1.0;
+        // ドキュメントの平均長さ
+        // average document length
         let avg_l = self.documents.iter().map(|doc| doc.token_sum as f64).sum::<f64>() / self.documents.len() as f64;
 
-        let doc_scores: Vec<(K, f64)> = self.documents.iter().map(|doc| {(
+        let doc_scores: Vec<(K, f64, u64)> = self.documents.iter().map(|doc| {(
             doc.key.clone(),
             tf.raw_iter().map(|(idx, _val)| {
                 let idf: f64 = self.idf.idf_vec.get(idx).copied().unwrap_or(N::zero()).denormalize(self.idf.denormalize_num);
                 let tf: f64 = doc.tf_vec.get(idx).copied().unwrap_or(N::zero()).denormalize(doc.denormalize_num);
+                // BM25のスコア計算式
+                // BM25 scoring formula
                 idf * ((tf * k1_p) / (tf + k1 * (1.0 - b + (b * (doc.token_sum as f64 / avg_l)))))
-            }).sum::<f64>()
+            }).sum::<f64>(),
+            doc.token_sum
         )}).collect();
         doc_scores
     }
