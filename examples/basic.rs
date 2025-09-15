@@ -1,4 +1,4 @@
-use std::{sync::Arc, vec};
+use std::sync::Arc;
 
 use tf_idf_vectorizer::{Corpus, SimilarityAlgorithm, TFIDFVectorizer, TokenFrequency};
 

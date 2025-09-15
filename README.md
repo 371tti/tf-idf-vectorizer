@@ -16,26 +16,11 @@ Supports everything from corpus construction → TF calculation → IDF calculat
 - Corpus info separated: index can be swapped independently
 - Restorable: keeps document statistics
 
-## Performance
-- Environment
-  - OS: Windows 11 Pro 23H2
-  - CPU: i9-11900K @ 3.5GHz AVX512 enabled
-  - RAM: 16GB + 32GB, DDR4 - 2800, 1-1
-- Target
-  - Wikipedia JP random 100k docs
-  - cosine similarity search
-- Results
-  - tokenize = 0.00ms
-  - build_refs = 0.00ms
-  - tf_build = 0.00ms
-  - score = 354.53ms
-  - total = 354.53ms
-
 ## Setup
 Cargo.toml
 ```toml
 [dependencies]
-tf-idf-vectorizer = "0.4.1"  # This README is for v0.4.x
+tf-idf-vectorizer = "0.4.3"  # This README is for v0.4.x
 ```
 
 ## Basic Usage

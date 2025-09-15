@@ -10,26 +10,11 @@ lang [ [en](./README.md) | ja ]
 ## 特徴
 - ジェネリックパラメータ (f32 / f64 / 符号なし整数など) 対応エンジン 量子化
 - 全構造体 シリアライズ / デシリアライズ (`TFIDFData`) 永続化
-- 類似度計算ユーティリティ (`SimilarityQuery`, `Hits`) 検索用途
+- 類似度計算ユーティリティ (`SimilarityAlgorithm`, `Hits`) 検索用途
 - index構築処理なし 即時追加 削除 リアルタイム製
 - スレッド間安全
 - コーパス情報の分離 indexに対して差し替え可能
 - 復元性 ドキュメントの統計情報を保持
-
-## パフォーマンス
-- 環境
-  - OS: windows 11 pro 23H2
-  - CPU: i9-11900K @ 3.5GHz AVX512 enabled
-  - RAM: 16GB + 32GB, DDR4 - 2800, 1-1
-- 対象
-  - wikipedia jp random 100k doc
-  - コサイン類似度検索
-- 結果
-  - tokenize=0.00ms 
-  - build_refs=0.00ms 
-  - tf_build=0.00ms 
-  - score=354.53ms e
-  - total=354.53ms
 
 ## セットアップ
 Cargo.toml
@@ -41,11 +26,12 @@ tf-idf-vectorizer = "0.3.0"  # 本READMEは `v0.3.x` 向け
 ## 基本的な使い方
 
 ```rust
+use std::sync::Arc;
 use tf_idf_vectorizer::{Corpus, SimilarityQuery, TFIDFVectorizer, TokenFrequency};
 
 fn main() {
     // コーパスを用意
-    let corpus = Corpus::new();
+    let corpus = Arc::new(Corpus::new());
 
     // token頻度の用意
     let mut freq1 = TokenFrequency::new();
@@ -54,7 +40,7 @@ fn main() {
     freq2.add_tokens(&["rust", "柔軟", "安全", "rust"]);
 
     // vectorizerの用意 内部パラメータはu16量子化に指定
-    let mut vectorizer: TFIDFVectorizer<u16> = TFIDFVectorizer::new(&corpus);    
+    let mut vectorizer: TFIDFVectorizer<u16> = TFIDFVectorizer::new(corpus);    
 
     // vectorizerにドキュメントを挿入
     vectorizer.add_doc("doc1".to_string(), &freq1);
@@ -63,17 +49,17 @@ fn main() {
     // query用のtoken頻度を用意
     let mut query_tokens = TokenFrequency::new();
     query_tokens.add_tokens(&["rust", "高速"]);
-
-    // クエリを作成
     let query = SimilarityQuery::CosineSimilarity(query_tokens);
-    // 類似度を測り、ソートする
     let mut result = vectorizer.similarity(query);
     result.sort_by_score();
 
     // 表示
-    result.list.iter().for_each(|(k, s)| {
-        println!("doc: {}, score: {}", k, s);
+    result.list.iter().for_each(|(k, s, l)| {
+        println!("doc: {}, score: {}, length: {}", k, s, l);
     });    
+
+    println!("result count: {}", result.list.len());
+    println!("{:?}", vectorizer);
 }
 ```
 
@@ -92,7 +78,7 @@ let restored = data.into_tf_idf_vectorizer(&corpus);
 ```
 
 ## 類似度検索 (概念)
-1. 入力トークンをクエリベクトル化 (SimilarityQuery)
+1. 入力トークンをクエリベクトル化 (SimilarityAlgorithm)
 2. 内積 / コサイン等で各ドキュメントと比較
 3. すべての結果を Hits で返却
 
@@ -114,7 +100,7 @@ let restored = data.into_tf_idf_vectorizer(&corpus);
 | TFIDFVectorizer | TF/IDF 管理と検索入口 |
 | TFIDFData | シリアライズ用中間体 |
 | DefaultTFIDFEngine | TF/IDF 計算バックエンド |
-| SimilarityQuery / Hits | 検索クエリと結果 |
+| SimilarityAlgorithm / Hits | 検索クエリと結果 |
 
 ## カスタマイズ
 - 数値型を f32/f64/u16/u32 などに切替
