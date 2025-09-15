@@ -5,3 +5,4 @@ milion.corpus.cbor
 milion.index.cbor
 test.corpus.cbor
 test.index.cbor
+tf-idf-vectorizer.exe

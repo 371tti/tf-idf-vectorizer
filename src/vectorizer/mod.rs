@@ -4,6 +4,8 @@ pub mod token;
 pub mod serde;
 pub mod evaluate;
 
+use std::sync::Arc;
+
 use indexmap::IndexSet;
 use num::Num;
 use ::serde::{Deserialize, Serialize};
@@ -12,7 +14,7 @@ use crate::{utils::{math::vector::{ZeroSpVec, ZeroSpVecTrait}, normalizer::DeNor
 use ahash::RandomState;
 
 #[derive(Debug)]
-pub struct TFIDFVectorizer<'a, N = f32, K = String, E = DefaultTFIDFEngine>
+pub struct TFIDFVectorizer<N = f32, K = String, E = DefaultTFIDFEngine>
 where
     N: Num + Copy,
     E: TFIDFEngine<N>,
@@ -22,7 +24,7 @@ where
     /// TFベクトルのトークンの次元サンプル
     pub token_dim_sample: IndexSet<String, RandomState>,
     /// コーパスの参照
-    pub corpus_ref: &'a Corpus,
+    pub corpus_ref: Arc<Corpus>,
     /// IDFベクトル
     pub idf: IDFVector<N>,
     _marker: std::marker::PhantomData<E>,
@@ -82,13 +84,13 @@ where
     }
 }
 
-impl <'a, N, K, E> TFIDFVectorizer<'a, N, K, E>
+impl <N, K, E> TFIDFVectorizer<N, K, E>
 where
     N: Num + Copy,
     E: TFIDFEngine<N>,
 {
     /// Create a new TFIDFVectorizer instance
-    pub fn new(corpus_ref: &'a Corpus) -> Self {
+    pub fn new(corpus_ref: Arc<Corpus>) -> Self {
         let mut instance = Self {
             documents: Vec::new(),
             token_dim_sample: IndexSet::with_hasher(RandomState::new()),
@@ -101,7 +103,7 @@ where
     }
 
     /// Corpusを指定する
-    pub fn set_corpus_ref(&mut self, corpus_ref: &'a Corpus) {
+    pub fn set_corpus_ref(&mut self, corpus_ref: Arc<Corpus>) {
         self.corpus_ref = corpus_ref;
         self.re_calc_idf();
     }
@@ -122,7 +124,7 @@ where
     }
 }
 
-impl <'a, N, K, E> TFIDFVectorizer<'a, N, K, E>
+impl <N, K, E> TFIDFVectorizer<N, K, E>
 where
     N: Num + Copy,
     E: TFIDFEngine<N>,

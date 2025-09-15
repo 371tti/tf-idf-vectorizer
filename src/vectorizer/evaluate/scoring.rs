@@ -68,7 +68,7 @@ where
     }
 }
 
-impl<'a, N, K, E> TFIDFVectorizer<'a, N, K, E>
+impl<N, K, E> TFIDFVectorizer<N, K, E>
 where
     K: Clone,
     N: Num + Copy + Into<f64> + DeNormalizer,
@@ -86,7 +86,7 @@ where
 }
 
 /// 検索のHL実装
-impl<'a, N, K, E> TFIDFVectorizer<'a, N, K, E>
+impl<N, K, E> TFIDFVectorizer<N, K, E>
 where
     K: Clone,
     N: Num + Copy + Into<f64> + DeNormalizer,
@@ -149,7 +149,8 @@ where
             }
             let norm_a = norm_a.sqrt();
             let norm_b = norm_b.sqrt();
-            let score = dot / (norm_a * norm_b);
+            // zero div safety with f64::EPSILON
+            let score = dot / (norm_a * norm_b + f64::EPSILON);
             (doc.key.clone(), score, doc.token_sum)
         }).collect();
         doc_scores

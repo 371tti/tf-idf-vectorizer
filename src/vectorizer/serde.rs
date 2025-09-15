@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use ahash::RandomState;
 use indexmap::IndexSet;
 use num::Num;
@@ -31,7 +33,7 @@ where
 {
     /// `TFIDFData`から`TFIDFVectorizer`に変換します。
     /// `corpus_ref`はコーパスの参照です。
-    pub fn into_tf_idf_vectorizer<'a>(self, corpus_ref: &'a Corpus) -> TFIDFVectorizer<'a, N, K, E>
+    pub fn into_tf_idf_vectorizer(self, corpus_ref: Arc<Corpus>) -> TFIDFVectorizer<N, K, E>
     {
         let mut instance = TFIDFVectorizer {
             documents: self.documents,
@@ -45,7 +47,7 @@ where
     }
 }
 
-impl<'a, N, K, E> Serialize for TFIDFVectorizer<'a, N, K, E>
+impl<N, K, E> Serialize for TFIDFVectorizer<N, K, E>
 where
     N: Num + Copy + Serialize,
     K: Serialize,
