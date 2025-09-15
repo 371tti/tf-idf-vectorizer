@@ -9,9 +9,10 @@ pub struct Corpus {
     /// corpus add_num
     /// for update notify
     pub add_num: AtomicU64,
-    /// clone以外はRelaxedで十分だと思う
+    /// corpus sub_num
+    /// for update notify
     pub sub_num: AtomicU64,
-    // ハッシュ関数は ahash に変更
+    // token counts in corpus
     pub token_counts: DashMap<String, u64, RandomState>,
 }
 
@@ -73,12 +74,12 @@ impl Corpus {
         add_num + sub_num
     }
 
-    /// corpus上のtokenの出現回数を取得する
+    /// Get the token count in the corpus
     pub fn get_token_count(&self, token: &str) -> u64 {
         self.token_counts.get(token).map_or(0, |count| *count)
     }
 
-    /// 現在の語彙サイズ (ユニークトークン数)
+    /// Get the current vocabulary size (number of unique tokens)
     #[inline]
     pub fn vocab_size(&self) -> usize {
         self.token_counts.len()

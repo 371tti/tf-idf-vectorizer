@@ -19,13 +19,13 @@ where
     N: Num + Copy,
     E: TFIDFEngine<N>,
 {
-    /// ドキュメントのTFベクトル
+    /// Document's TF Vector
     pub documents: Vec<TFVector<N, K>>,
-    /// TFベクトルのトークンの次元サンプル
+    /// TF Vector's token dimension sample
     pub token_dim_sample: IndexSet<String, RandomState>,
-    /// コーパスの参照
+    /// Corpus reference
     pub corpus_ref: Arc<Corpus>,
-    /// IDFベクトル
+    /// IDF Vector
     pub idf: IDFVector<N>,
     _marker: std::marker::PhantomData<E>,
 }
@@ -35,14 +35,15 @@ pub struct TFVector<N, K>
 where
     N: Num + Copy,
 {
-    /// TFベクトル
-    /// スパースベクトルを使用
+    /// TF Vector
+    /// use sparse vector
     pub tf_vec: ZeroSpVec<N>,
-    /// トークンの合計数
+    /// sum of tokens of this document
     pub token_sum: u64,
-    /// 正規化解除のための数値
+    /// denormalize number for this document
+    /// for reverse calculation to get token counts from tf values
     pub denormalize_num: f64,
-    /// ドキュメントID
+    /// Document ID
     pub key: K,
 }
 
@@ -60,13 +61,13 @@ pub struct IDFVector<N>
 where
     N: Num,
 {
-    /// IDFベクトル 大体埋まってるのでスパースつかわん
+    /// IDF Vector it is not sparse because it is mostly filled
     pub idf_vec: Vec<N>,
-    /// 正規化解除のための数値
+    /// denormalize number for idf
     pub denormalize_num: f64,
-    /// 最新のエントロピー
+    /// latest entropy
     pub latest_entropy: u64,
-    /// ドキュメント数
+    /// document count
     pub doc_num: u64,
 }
 
@@ -102,7 +103,8 @@ where
         instance
     }
 
-    /// Corpusを指定する
+    /// set corpus reference
+    /// and recalculate idf
     pub fn set_corpus_ref(&mut self, corpus_ref: Arc<Corpus>) {
         self.corpus_ref = corpus_ref;
         self.re_calc_idf();
@@ -129,8 +131,8 @@ where
     N: Num + Copy,
     E: TFIDFEngine<N>,
 {
-    /// ドキュメントを追加します
-    /// 即時参照されているCorpusも更新されます
+    /// Add a document
+    /// The immediately referenced Corpus is also updated
     pub fn add_doc(&mut self, doc_id: K, doc: &TokenFrequency) {
         let token_sum = doc.token_sum();
         // ドキュメントのトークンをコーパスに追加
@@ -153,6 +155,7 @@ where
         self.documents.push(doc);
     }
 
+    /// Get TFVector by document ID
     pub fn get_tf(&self, key: &K) -> Option<&TFVector<N, K>>
     where
         K: PartialEq,
@@ -160,6 +163,9 @@ where
         self.documents.iter().find(|doc| &doc.key == key)
     }
 
+    /// Get TokenFrequency by document ID
+    /// If quantized, there may be some error
+    /// Words not included in the corpus are ignored
     pub fn get_tf_into_token_freq(&self, key: &K) -> Option<TokenFrequency>
     where
         K: PartialEq,
@@ -172,7 +178,7 @@ where
                     let val_f64: f64 = (*val).into();
                     let token_num: f64 = tf_vec.token_sum.denormalize(tf_vec.denormalize_num) * val_f64;
                     token_freq.set_token_count(token, token_num as u64);
-                } // 範囲外は無視
+                } // out of range is ignored
             });
             Some(token_freq)
         } else {
@@ -180,9 +186,10 @@ where
         }
     }
 
-    /// 参照されてるコーパスを更新
+    /// add document to corpus
+    /// update the referenced corpus
     fn add_corpus(&mut self, doc: &TokenFrequency) {
-        // コーパスにドキュメントを追加
+        // add document to corpus
         self.corpus_ref.add_set(&doc.token_set_ref_str());
     }
 }

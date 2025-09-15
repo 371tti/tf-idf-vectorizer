@@ -4,10 +4,10 @@ use ahash::RandomState;
 use serde::{Deserialize, Serialize};
 
 
-///  TokenFrequency 構造体
-/// tokenの出現頻度を管理するための構造体です
-/// tokenの出現回数をカウントします。
-/// 
+/// TokenFrequency struct
+/// Manages the frequency of token occurrences.
+/// Counts the number of times each token appears.
+///
 /// # Examples
 /// ```
 /// use crate::tf_idf_vectorizer::vectorizer::token::TokenFrequency;
@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 /// token_freq.add_token("token1");
 /// token_freq.add_token("token2");
 /// token_freq.add_token("token1");
-/// 
+///
 /// assert_eq!(token_freq.token_count("token1"), 2);
 /// ```
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -24,9 +24,9 @@ pub struct TokenFrequency {
     total_token_count: u64,
 }
 
-/// Tokenの追加、削除の実装
+/// Implementation for adding and removing tokens
 impl TokenFrequency {
-    /// 新しいTokenFrequencyを作成するメソッド
+    /// Create a new TokenFrequency
     pub fn new() -> Self {
         TokenFrequency {
             token_count: HashMap::with_hasher(RandomState::new()),
@@ -34,10 +34,10 @@ impl TokenFrequency {
         }
     }
 
-    /// tokenを追加する
-    /// 
+    /// Add a token
+    ///
     /// # Arguments
-    /// * `token` - 追加するトークン
+    /// * `token` - Token to add
     #[inline]
     pub fn add_token(&mut self, token: &str) -> &mut Self {
         let count = self.token_count.entry(token.to_string()).or_insert(0);
@@ -46,10 +46,10 @@ impl TokenFrequency {
         self
     }
 
-    /// 複数のtokenを追加する
-    /// 
+    /// Add multiple tokens
+    ///
     /// # Arguments
-    /// * `tokens` - 追加するトークンのスライス
+    /// * `tokens` - Slice of tokens to add
     #[inline]
     pub fn add_tokens<T>(&mut self, tokens: &[T]) -> &mut Self 
     where T: AsRef<str> 
@@ -61,10 +61,10 @@ impl TokenFrequency {
         self
     }
 
-    /// tokenを引く
-    /// 
+    /// Subtract a token
+    ///
     /// # Arguments
-    /// * `token` - 引くトークン
+    /// * `token` - Token to subtract
     #[inline]
     pub fn sub_token(&mut self, token: &str) -> &mut Self {
         if let Some(count) = self.token_count.get_mut(token) {
@@ -79,10 +79,10 @@ impl TokenFrequency {
         self
     }
 
-    /// 複数のtokenを引く
-    /// 
+    /// Subtract multiple tokens
+    ///
     /// # Arguments
-    /// * `tokens` - 引くトークンのスライス
+    /// * `tokens` - Slice of tokens to subtract
     #[inline]
     pub fn sub_tokens<T>(&mut self, tokens: &[T]) -> &mut Self 
     where T: AsRef<str>
@@ -94,11 +94,11 @@ impl TokenFrequency {
         self
     }
 
-    /// tokenの出現回数を指定する
-    /// 
+    /// Set the occurrence count for a token
+    ///
     /// # Arguments
-    /// * `token` - トークン
-    /// * `count` - 出現回数
+    /// * `token` - Token
+    /// * `count` - Occurrence count
     pub fn set_token_count(&mut self, token: &str, count: u64) -> &mut Self {
         if count == 0 {
             self.token_count.remove(token);
@@ -111,12 +111,12 @@ impl TokenFrequency {
     }
 }
 
-/// TokenFrequencyの情報を取得するための実装
+/// Implementation for retrieving information from TokenFrequency
 impl TokenFrequency {
-    /// すべてのtokenの出現回数を取得します
-    /// 
+    /// Get a vector of all tokens and their counts
+    ///
     /// # Returns
-    /// * `Vec<(String, u32)>` - トークンとその出現回数のベクタ
+    /// * `Vec<(String, u64)>` - Vector of tokens and their counts
     #[inline]
     pub fn token_count_vector(&self) -> Vec<(String, u64)> {
         self.token_count.iter().map(|(token, &count)| {
@@ -124,11 +124,10 @@ impl TokenFrequency {
         }).collect()
     }
 
-    /// すべてのtokenの出現回数を取得します
-    /// 文字列はこれの参照を返します
-    /// 
+    /// Get a vector of all tokens and their counts (as &str)
+    ///
     /// # Returns
-    /// * `Vec<(&str, u32)>` - トークンとその出現回数のベクタ
+    /// * `Vec<(&str, u64)>` - Vector of tokens and their counts
     #[inline]
     pub fn token_count_vector_ref_str(&self) -> Vec<(&str, u64)> {
         self.token_count.iter().map(|(token, &count)| {
@@ -136,11 +135,10 @@ impl TokenFrequency {
         }).collect()
     }
 
-    /// すべてのtokenの出現回数を取得します
-    /// 文字列はこれの参照を返します
-    /// 
+    /// Get a hashmap of all tokens and their counts (as &str)
+    ///
     /// # Returns
-    /// * `HashMap<&str, u32>` - トークンとその出現回数のハッシュマップ
+    /// * `HashMap<&str, u64>` - HashMap of tokens and their counts
     #[inline]
     pub fn token_count_hashmap_ref_str(&self) -> HashMap<&str, u64, RandomState> {
         self.token_count.iter().map(|(token, &count)| {
@@ -148,32 +146,32 @@ impl TokenFrequency {
         }).collect()
     }
 
-    /// 全tokenのカウントの合計を取得します
-    /// 
+    /// Get the total count of all tokens
+    ///
     /// # Returns
-    /// * `u64` - tokenのカウントの合計
+    /// * `u64` - Total token count
     #[inline]
     pub fn token_sum(&self) -> u64 {
         self.total_token_count
     }
 
-    /// あるtokenの出現回数を取得します
-    /// 
+    /// Get the occurrence count for a specific token
+    ///
     /// # Arguments
-    /// * `token` - トークン
-    /// 
+    /// * `token` - Token
+    ///
     /// # Returns
-    /// * `u32` - トークンの出現回数
+    /// * `u64` - Occurrence count for the token
     #[inline]
     pub fn token_count(&self, token: &str) -> u64 {
         *self.token_count.get(token).unwrap_or(&0)
     }
 
-    /// もっとも多く出現したtokenを取得します
-    /// 同じ出現回数のtokenが複数ある場合は、すべてのtokenを取得します
-    /// 
+    /// Get the most frequent tokens
+    /// If multiple tokens have the same count, all are returned
+    ///
     /// # Returns
-    /// * `Vec<(String, u32)>` - トークンとその出現回数のベクタ
+    /// * `Vec<(String, u64)>` - Vector of most frequent tokens and their counts
     #[inline]
     pub fn most_frequent_tokens_vector(&self) -> Vec<(String, u64)> {
         if let Some(&max_count) = self.token_count.values().max() {
@@ -186,10 +184,10 @@ impl TokenFrequency {
         }
     }
 
-    /// もっとも多く出現したtokenの出現回数取得します
-    /// 
+    /// Get the count of the most frequent token
+    ///
     /// # Returns
-    /// * `u32` - 再頻出tokenの出現回数
+    /// * `u64` - Count of the most frequent token
     #[inline]
     pub fn most_frequent_token_count(&self) -> u64 {
         if let Some(&max_count) = self.token_count.values().max() {
@@ -199,72 +197,70 @@ impl TokenFrequency {
         }
     }
 
-    /// tokenが存在するかどうかを確認します
-    /// 
+    /// Check if a token exists
+    ///
     /// # Arguments
-    /// * `token` - トークン
-    /// 
+    /// * `token` - Token
+    ///
     /// # Returns
-    /// * `bool` - tokenが存在する場合はtrue、存在しない場合はfalse
+    /// * `bool` - true if the token exists, false otherwise
     #[inline]
     pub fn contains_token(&self, token: &str) -> bool {
         self.token_count.contains_key(token)
     }
 
-    /// tokenのsetを取得します
-    /// 
+    /// Get the set of tokens
+    ///
     /// # Returns
-    /// * `Vec<String>` - tokenのset
+    /// * `Vec<String>` - Set of tokens
     #[inline]
     pub fn token_set(&self) -> Vec<String> {
         self.token_count.keys().cloned().collect()
     }
 
-    /// tokenのsetを取得します
-    /// 文字列はこれの参照を返します
-    /// 
+    /// Get the set of tokens (as &str)
+    ///
     /// # Returns
-    /// * `Vec<&str>` - tokenのset
+    /// * `Vec<&str>` - Set of tokens
     #[inline]
     pub fn token_set_ref_str(&self) -> Vec<&str> {
         self.token_count.keys().map(|s| s.as_str()).collect()
     }
 
-    /// tokenのsetを取得します
-    /// 
+    /// Get the set of tokens as a HashSet
+    ///
     /// # Returns
-    /// * `HashSet<String>` - tokenのset
+    /// * `HashSet<String>` - Set of tokens
     #[inline]
     pub fn token_hashset(&self) -> HashSet<String, RandomState> {
         self.token_count.keys().cloned().collect()
     }
 
-    /// tokenのsetを取得します
-    /// 文字列はこれの参照を返します
-    /// 
+    /// Get the set of tokens as a HashSet (as &str)
+    ///
     /// # Returns
-    /// * `HashSet<&str>` - tokenのset
+    /// * `HashSet<&str>` - Set of tokens
     #[inline]
     pub fn token_hashset_ref_str(&self) -> HashSet<&str, RandomState> {
         self.token_count.keys().map(|s| s.as_str()).collect()
     }
 
-    /// 出現した単語数を取得します
-    /// 
+    /// Get the number of unique tokens
+    ///
     /// # Returns
-    /// * `usize` - 出現した単語数
+    /// * `usize` - Number of unique tokens
     #[inline]
     pub fn token_num(&self) -> usize {
         self.token_count.len()
     }
 
-    /// stop_tokenを削除します
-    /// 
+    /// Remove stop tokens
+    ///
     /// # Arguments
-    /// * `stop_tokens` - 削除するトークンのスライス
-    /// 
+    /// * `stop_tokens` - Slice of stop tokens to remove
+    ///
     /// # Returns
-    /// * `u64` - 削除されたtokenの合計数
+    /// * `u64` - Total count of removed tokens
     #[inline]
     pub fn remove_stop_tokens(&mut self, stop_tokens: &[&str]) -> u64{
         let mut removed_total_count: u64 = 0;
@@ -277,13 +273,13 @@ impl TokenFrequency {
         removed_total_count
     }
 
-    /// 条件に基づいてtokenを削除します
-    /// 
+    /// Remove tokens by a condition
+    ///
     /// # Arguments
-    /// * `condition` - 条件を満たすtokenを削除するクロージャ
-    /// 
+    /// * `condition` - Closure to determine which tokens to remove
+    ///
     /// # Returns
-    /// * `u64` - 削除されたtokenの合計数
+    /// * `u64` - Total count of removed tokens
     #[inline]
     pub fn remove_tokens_by<F>(&mut self, condition: F) -> u64
     where
@@ -303,10 +299,10 @@ impl TokenFrequency {
         removed_total_count
     }
 
-    /// 頻度でソートされたトークンのベクタを取得(降順)
-    /// 
+    /// Get a vector of tokens sorted by frequency (descending)
+    ///
     /// # Returns
-    /// * `Vec<(String, u32)>` - 頻度でソートされたトークンのベクタ
+    /// * `Vec<(String, u64)>` - Vector of tokens sorted by frequency
     #[inline]
     pub fn sorted_frequency_vector(&self) -> Vec<(String, u64)> {
         let mut token_list: Vec<(String, u64)> = self.token_count
@@ -318,10 +314,10 @@ impl TokenFrequency {
         token_list
     }
 
-    /// 辞書順でソートされたトークンのベクタを取得(昇順)
-    /// 
+    /// Get a vector of tokens sorted by dictionary order (ascending)
+    ///
     /// # Returns
-    /// * `Vec<(String, u32)>` - 辞書順でソートされたトークンのベクタ
+    /// * `Vec<(String, u64)>` - Vector of tokens sorted by dictionary order
     #[inline]
     pub fn sorted_dict_order_vector(&self) -> Vec<(String, u64)> {
         let mut token_list: Vec<(String, u64)> = self.token_count
@@ -333,11 +329,11 @@ impl TokenFrequency {
         token_list
     }
 
-    /// tokenの多様性を計算します
-    /// 1.0は完全な多様性を示し、0.0は完全な非多様性を示します
-    /// 
+    /// Calculate the diversity of tokens
+    /// 1.0 indicates complete diversity, 0.0 indicates no diversity
+    ///
     /// # Returns
-    /// * `f64` - tokenの多様性
+    /// * `f64` - Diversity of tokens
     #[inline]
     pub fn unique_token_ratio(&self) -> f64 {
         if self.total_token_count == 0 {
@@ -346,8 +342,8 @@ impl TokenFrequency {
         self.token_count.len() as f64 / self.total_token_count as f64
     }
 
-    /// 確率分布 P(token) を取得します（所有文字列版）
-    /// total が 0 の場合は空ベクタを返します
+    /// Get the probability distribution P(token) (owned String version)
+    /// Returns an empty vector if total is 0
     #[inline]
     pub fn probability_vector(&self) -> Vec<(String, f64)> {
         if self.total_token_count == 0 {
@@ -360,8 +356,8 @@ impl TokenFrequency {
             .collect()
     }
 
-    /// 確率分布 P(token) を取得します（&str 参照版）
-    /// total が 0 の場合は空ベクタを返します
+    /// Get the probability distribution P(token) (as &str)
+    /// Returns an empty vector if total is 0
     #[inline]
     pub fn probability_vector_ref_str(&self) -> Vec<(&str, f64)> {
         if self.total_token_count == 0 {
@@ -374,8 +370,8 @@ impl TokenFrequency {
             .collect()
     }
 
-    /// 特定トークンの確率 P(token) を返します
-    /// total が 0 の場合は 0.0 を返します
+    /// Get the probability P(token) for a specific token
+    /// Returns 0.0 if total is 0
     #[inline]
     pub fn probability(&self, token: &str) -> f64 {
         if self.total_token_count == 0 {
@@ -384,14 +380,14 @@ impl TokenFrequency {
         (self.token_count(token) as f64) / (self.total_token_count as f64)
     }
 
-    /// カウントを全リセットします
+    /// Reset all counts
     #[inline]
     pub fn clear(&mut self) {
         self.token_count.clear();
         self.total_token_count = 0;
     }
 
-    /// shrink internal storage to fit current size
+    /// Shrink internal storage to fit current size
     #[inline]
     pub fn shrink_to_fit(&mut self) {
         self.token_count.shrink_to_fit();

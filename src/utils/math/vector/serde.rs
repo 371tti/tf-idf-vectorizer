@@ -18,6 +18,7 @@ where
         
         // entries: (index, value) のVecとして順序付きに出力する
         let mut entries = Vec::with_capacity(self.nnz);
+        //  entries = self.raw_iter().map(|(idx, entry)| (idx as u64, *entry)).collect();
         unsafe {
             for i in 0..self.nnz {
                 let idx = *self.ind_ptr().add(i);
@@ -36,23 +37,49 @@ where
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where D: Deserializer<'de> {
-        // 内部表現用の一時構造体
-        #[derive(Deserialize)]
-        struct ZeroSpVecData<N> {
-            len: usize,
-            nnz: usize,
-            entries: Vec<(u64, N)>,
+        use serde::de::{Visitor, SeqAccess, MapAccess, Error as DeError};
+        use std::fmt;
+
+        struct ZeroSpVecVisitor<N> {
+            marker: std::marker::PhantomData<N>,
         }
 
-        let data = ZeroSpVecData::deserialize(deserializer)?;
+        impl<'de, N> Visitor<'de> for ZeroSpVecVisitor<N>
+        where N: Num + Deserialize<'de> + Copy {
+            type Value = ZeroSpVec<N>;
 
-        // capacity は nnz の値で良いとする
-        let mut vec = ZeroSpVec::with_capacity(data.nnz);
-        vec.len = data.len;
-        // entries を内部バッファに移す
-        for (index, value) in data.entries {
-            unsafe { vec.raw_push(index as usize, value) };
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                write!(f, "struct ZeroSpVec")
+            }
+
+            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+            where A: MapAccess<'de> {
+                let mut len = None;
+                let mut nnz = None;
+                let mut entries = None;
+                while let Some(key) = map.next_key::<&str>()? {
+                    match key {
+                        "len" => len = Some(map.next_value::<u64>()? as usize),
+                        "nnz" => nnz = Some(map.next_value::<u64>()? as usize),
+                        "entries" => entries = Some(map.next_value::<Vec<(u64, N)>>()?),
+                        _ => { let _: serde::de::IgnoredAny = map.next_value()?; }
+                    }
+                }
+                let len = len.ok_or_else(|| DeError::missing_field("len"))?;
+                let nnz = nnz.ok_or_else(|| DeError::missing_field("nnz"))?;
+                let entries = entries.ok_or_else(|| DeError::missing_field("entries"))?;
+                let mut vec = ZeroSpVec::with_capacity(nnz);
+                vec.len = len;
+                for (index, value) in entries {
+                    unsafe { vec.raw_push(index as usize, value) };
+                }
+                Ok(vec)
+            }
         }
-        Ok(vec)
+        deserializer.deserialize_struct(
+            "ZeroSpVec",
+            &["len", "nnz", "entries"],
+            ZeroSpVecVisitor { marker: std::marker::PhantomData },
+        )
     }
 }

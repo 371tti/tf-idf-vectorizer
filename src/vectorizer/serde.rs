@@ -7,20 +7,20 @@ use serde::{ser::SerializeStruct, Deserialize, Serialize};
 
 use crate::{vectorizer::{tfidf::{DefaultTFIDFEngine, TFIDFEngine}, IDFVector, TFVector}, Corpus, TFIDFVectorizer};
 
-/// TFIDFVectorizerのデシリアライズ用のデータ構造
-/// これは参照を含んでいないため、シリアライズ可能です。
-/// `into_tf_idf_vectorizer`メソッドを使用して、`TFIDFVectorizer`に変換できます。
+/// Data structure for deserializing TFIDFVectorizer.
+/// This struct does not contain references, so it can be serialized.
+/// Use the `into_tf_idf_vectorizer` method to convert to `TFIDFVectorizer`.
 #[derive(Debug, Deserialize, Serialize)]
 pub struct TFIDFData<N = f32, K = String, E = DefaultTFIDFEngine>
 where
     N: Num + Copy,
     E: TFIDFEngine<N>,
 {
-    /// ドキュメントのTFベクトル
+    /// TF vectors for documents
     pub documents: Vec<TFVector<N, K>>,
-    /// TFベクトルのトークンの次元サンプル
+    /// Token dimension sample for TF vectors
     pub token_dim_sample: IndexSet<String, RandomState>,
-    /// IDFベクトル
+    /// IDF vector
     pub idf: IDFVector<N>,
     #[serde(default, skip_serializing, skip_deserializing)]
     _marker: std::marker::PhantomData<E>,
@@ -31,8 +31,8 @@ where
     N: Num + Copy,
     E: TFIDFEngine<N>,
 {
-    /// `TFIDFData`から`TFIDFVectorizer`に変換します。
-    /// `corpus_ref`はコーパスの参照です。
+    /// Convert `TFIDFData` into `TFIDFVectorizer`.
+    /// `corpus_ref` is a reference to the corpus.
     pub fn into_tf_idf_vectorizer(self, corpus_ref: Arc<Corpus>) -> TFIDFVectorizer<N, K, E>
     {
         let mut instance = TFIDFVectorizer {
@@ -53,9 +53,9 @@ where
     K: Serialize,
     E: TFIDFEngine<N>,
 {
-    /// TFIDFVectorizerをシリアライズします
-    /// これは参照を含んでるため、それを除外したものになります。
-    /// デシリアライズするには`TFIDFData`を使用してください。
+    /// Serialize TFIDFVectorizer.
+    /// This struct contains references, so they are excluded from serialization.
+    /// Use `TFIDFData` for deserialization.
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,

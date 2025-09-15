@@ -5,7 +5,7 @@ pub use vectorizer::{
     TFIDFVectorizer,
     corpus::Corpus,
     token::TokenFrequency,
-    evaluate::scoring::SimilarityQuery,
+    evaluate::scoring::SimilarityAlgorithm,
     evaluate::scoring::Hits,
     serde::TFIDFData,
 };
