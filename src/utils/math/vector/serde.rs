@@ -37,7 +37,7 @@ where
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where D: Deserializer<'de> {
-        use serde::de::{Visitor, SeqAccess, MapAccess, Error as DeError};
+        use serde::de::{Visitor, MapAccess, Error as DeError};
         use std::fmt;
 
         struct ZeroSpVecVisitor<N> {
@@ -57,8 +57,8 @@ where
                 let mut len = None;
                 let mut nnz = None;
                 let mut entries = None;
-                while let Some(key) = map.next_key::<&str>()? {
-                    match key {
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
                         "len" => len = Some(map.next_value::<u64>()? as usize),
                         "nnz" => nnz = Some(map.next_value::<u64>()? as usize),
                         "entries" => entries = Some(map.next_value::<Vec<(u64, N)>>()?),
