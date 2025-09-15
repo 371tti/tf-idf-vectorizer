@@ -186,6 +186,24 @@ where
         }
     }
 
+    /// Check if a document with the given ID exists
+    pub fn contains_doc(&self, key: &K) -> bool
+    where
+        K: PartialEq,
+    {
+        self.documents.iter().any(|doc| &doc.key == key)
+    }
+
+    /// Check if the token exists in the token dimension sample
+    pub fn contains_token(&self, token: &str) -> bool {
+        self.token_dim_sample.contains(token)
+    }
+
+    /// Check if all tokens in the given TokenFrequency exist in the token dimension sample
+    pub fn contains_tokens_from_freq(&self, freq: &TokenFrequency) -> bool {
+        freq.token_set_ref_str().iter().all(|tok| self.token_dim_sample.contains(*tok))
+    }
+
     /// add document to corpus
     /// update the referenced corpus
     fn add_corpus(&mut self, doc: &TokenFrequency) {
