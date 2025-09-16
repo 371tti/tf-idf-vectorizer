@@ -17,6 +17,21 @@ pub enum SimilarityAlgorithm {
     /// param k1: Controls term frequency saturation
     /// param b: Controls document length normalization
     BM25(f64, f64), // (k1, b)
+    /// BM25+ similarity
+    /// Improves BM25 by adding a delta to term frequency
+    /// param k1: Controls term frequency saturation
+    /// param b: Controls document length normalization
+    /// param delta: Small constant added to term frequency to avoid zero scores
+    BM25plus(f64, f64, f64), // (k1, b, delta)
+    /// BM25L similarity
+    /// Considers document length with lower bound adjustment
+    /// param k1: Controls term frequency saturation
+    /// param b: Controls document length normalization
+    BM25L(f64, f64), // (k1, b)
+    /// Combined BM25 and Cosine Similarity
+    /// param k1: Controls term frequency saturation for BM25
+    /// param b: Controls document length normalization for BM25
+    BM25xCosineSimilarity(f64, f64),
 }
 
 /// Structure to store search results
@@ -93,6 +108,17 @@ where
             SimilarityAlgorithm::Dot => self.scoring_dot(&freq),
             SimilarityAlgorithm::CosineSimilarity => self.scoring_cosine(&freq),
             SimilarityAlgorithm::BM25(k1, b) => self.scoring_bm25(&freq, *k1, *b),
+            SimilarityAlgorithm::BM25plus(k1, b, delta) => self.scoring_bm25plus(&freq, *k1, *b, *delta),
+            SimilarityAlgorithm::BM25L(k1, b) => self.scoring_bm25l(&freq, *k1, *b),
+            SimilarityAlgorithm::BM25xCosineSimilarity(k1, b) => {
+                let mut bm25_scores = self.scoring_bm25(&freq, *k1, *b);
+                let cosine_scores = self.scoring_cosine(&freq);
+                // already sorted by document order, so we can multiply directly
+                bm25_scores.iter_mut().zip(cosine_scores.iter()).for_each(|((_, bm25_score, _), (_, cosine_score, _))| {
+                    *bm25_score *= *cosine_score;
+                });
+                bm25_scores
+            }
         };
 
         Hits { list: result }
@@ -173,15 +199,66 @@ where
         let k1_p = k1 + 1.0;
         // Average document length
         let avg_l = self.documents.iter().map(|doc| doc.token_sum as f64).sum::<f64>() / self.documents.len() as f64;
+        let rev_avg_l = 1.0 / avg_l;
 
         let doc_scores: Vec<(K, f64, u64)> = self.documents.iter().map(|doc| {(
             doc.key.clone(),
-            tf.raw_iter().map(|(idx, _val)| {
-                let idf: f64 = self.idf.idf_vec.get(idx).copied().unwrap_or(N::zero()).denormalize(self.idf.denormalize_num);
-                let tf: f64 = doc.tf_vec.get(idx).copied().unwrap_or(N::zero()).denormalize(doc.denormalize_num);
-                // BM25 scoring formula
-                idf * ((tf * k1_p) / (tf + k1 * (1.0 - b + (b * (doc.token_sum as f64 / avg_l)))))
-            }).sum::<f64>(),
+            {
+                let len_p = doc.token_sum as f64 * rev_avg_l;
+                tf.raw_iter().map(|(idx, _val)| {
+                    let idf: f64 = self.idf.idf_vec.get(idx).copied().unwrap_or(N::zero()).denormalize(self.idf.denormalize_num);
+                    let tf: f64 = doc.tf_vec.get(idx).copied().unwrap_or(N::zero()).denormalize(doc.denormalize_num);
+                    // BM25 scoring formula
+                    idf * ((tf * k1_p) / (tf + k1 * (1.0 - b + (b * len_p))))
+                }).sum::<f64>()
+            },
+            doc.token_sum
+        )}).collect();
+        doc_scores
+    }
+
+    /// Scoring by BM25+
+    fn scoring_bm25plus(&self, freq: &TokenFrequency, k1: f64, b: f64, delta: f64) -> Vec<(K, f64, u64)> {
+        let (tf, _tf_denormalize_num) = E::tf_vec(&freq, &self.token_dim_sample);
+        // Average document length
+        let avg_l = self.documents.iter().map(|doc| doc.token_sum as f64).sum::<f64>() / self.documents.len() as f64;
+        let rev_avg_l = 1.0 / avg_l;
+        let doc_scores: Vec<(K, f64, u64)> = self.documents.iter().map(|doc| {(
+            doc.key.clone(),
+            {
+                let len_p = doc.token_sum as f64 * rev_avg_l;
+                tf.raw_iter().map(|(idx, _val)| {
+                    let idf: f64 = self.idf.idf_vec.get(idx).copied().unwrap_or(N::zero()).denormalize(self.idf.denormalize_num);
+                    let tf: f64 = doc.tf_vec.get(idx).copied().unwrap_or(N::zero()).denormalize(doc.denormalize_num);
+                    // BM25+ scoring formula
+                    idf * ((tf + delta) / (tf + k1 * (1.0 - b + (b * len_p))))
+                }).sum::<f64>()
+            },
+            doc.token_sum
+        )}).collect();
+        doc_scores
+    }
+
+    /// Scoring by BM25L
+    fn scoring_bm25l(&self, freq: &TokenFrequency, k1: f64, b: f64) -> Vec<(K, f64, u64)> {
+        let (tf, _tf_denormalize_num) = E::tf_vec(&freq, &self.token_dim_sample);
+        let k1_p = k1 + 1.0;
+        // Average document length
+        let avg_l = self.documents.iter().map(|doc| doc.token_sum as f64).sum::<f64>() / self.documents.len() as f64;
+        let rev_avg_l = 1.0 / avg_l;
+
+        let doc_scores: Vec<(K, f64, u64)> = self.documents.iter().map(|doc| {(
+            doc.key.clone(),
+            {
+                let len_p = doc.token_sum as f64 * rev_avg_l;
+                tf.raw_iter().map(|(idx, _val)| {
+                    let idf: f64 = self.idf.idf_vec.get(idx).copied().unwrap_or(N::zero()).denormalize(self.idf.denormalize_num);
+                    let tf: f64 = doc.tf_vec.get(idx).copied().unwrap_or(N::zero()).denormalize(doc.denormalize_num);
+                    let tf = tf * (1.0 - b + b * len_p);
+                    // BM25 scoring formula
+                    idf * ((tf * k1_p) / (tf + k1 * (1.0 - b + (b * len_p))))
+                }).sum::<f64>()
+            },
             doc.token_sum
         )}).collect();
         doc_scores
