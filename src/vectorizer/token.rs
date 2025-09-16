@@ -109,6 +109,31 @@ impl TokenFrequency {
         }
         self
     }
+
+    /// Merge with another TokenFrequency
+    /// # Arguments
+    /// * `other` - Another TokenFrequency to merge with
+    pub fn add_tokens_from_freq(&mut self, other: &TokenFrequency) -> &mut Self {
+        for (token, &count) in &other.token_count {
+            let entry = self.token_count.entry(token.clone()).or_insert(0);
+            *entry += count;
+            self.total_token_count += count;
+        }
+        self
+    }
+
+    /// Scale the token counts by a scalar
+    /// # Arguments
+    /// * `scalar` - Scalar to scale by
+    pub fn scale(&mut self, scalar: f64) -> &mut Self {
+        let mut total_count = 0;
+        self.token_count.iter_mut().for_each(|(_, count)| {
+            *count = ((*count as f64) * scalar).round() as u64;
+            total_count += *count;
+        });
+        self.total_token_count = total_count;
+        self
+    }
 }
 
 /// Implementation for retrieving information from TokenFrequency

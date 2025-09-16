@@ -31,7 +31,18 @@ pub enum SimilarityAlgorithm {
     /// Combined BM25 and Cosine Similarity
     /// param k1: Controls term frequency saturation for BM25
     /// param b: Controls document length normalization for BM25
-    BM25xCosineSimilarity(f64, f64),
+    BM25CosineFilter(f64, f64), // (k1, b)
+    /// Combined BM25 and Cosine Similarity with normalized linear combination
+    /// param k1: Controls term frequency saturation for BM25
+    /// param b: Controls document length normalization for BM25
+    /// param alpha: Controls the balance between BM25 and Cosine Similarity (0.0 - 1.0)
+    BM25CosineNormalizedLinearCombination(f64, f64, f64), // (k1, b, alpha)
+    /// Combined BM25 pseudo-relevance feedback from top documents and Cosine Similarity
+    /// param k1: Controls term frequency saturation for BM25
+    /// param b: Controls document length normalization for BM25
+    /// param top_n: Number of top documents to consider for pseudo-relevance feedback
+    /// param alpha: balance of original query and pseudo-relevance feedback (0.0 is ignore original query, 1.0 is full weight to original query)
+    BM25PrfCosineSimilarity(f64, f64, usize, f64), // (k1, b, top_n, alpha)
 }
 
 /// Structure to store search results
@@ -87,7 +98,7 @@ where
 
 impl<N, K, E> TFIDFVectorizer<N, K, E>
 where
-    K: Clone,
+    K: Clone + PartialEq,
     N: Num + Copy + Into<f64> + DeNormalizer,
     E: TFIDFEngine<N>,
 {
@@ -110,7 +121,7 @@ where
             SimilarityAlgorithm::BM25(k1, b) => self.scoring_bm25(&freq, *k1, *b),
             SimilarityAlgorithm::BM25plus(k1, b, delta) => self.scoring_bm25plus(&freq, *k1, *b, *delta),
             SimilarityAlgorithm::BM25L(k1, b) => self.scoring_bm25l(&freq, *k1, *b),
-            SimilarityAlgorithm::BM25xCosineSimilarity(k1, b) => {
+            SimilarityAlgorithm::BM25CosineFilter(k1, b) => {
                 let mut bm25_scores = self.scoring_bm25(&freq, *k1, *b);
                 let cosine_scores = self.scoring_cosine(&freq);
                 // already sorted by document order, so we can multiply directly
@@ -118,7 +129,57 @@ where
                     *bm25_score *= *cosine_score;
                 });
                 bm25_scores
-            }
+            },
+            SimilarityAlgorithm::BM25CosineNormalizedLinearCombination(k1, b, alpha) => {
+                let mut bm25_scores = self.scoring_bm25(&freq, *k1, *b);
+                let cosine_scores = self.scoring_cosine(&freq);
+                // Normalize scores to [0, 1]
+                let (bm25_min, bm25_max) = bm25_scores.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), &(_, score, _)| {
+                    (min.min(score), max.max(score))
+                });
+                let (cosine_min, cosine_max) = cosine_scores.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), &(_, score, _)| {
+                    (min.min(score), max.max(score))
+                });
+                let alpha = alpha.clamp(0.0, 1.0);
+                let rev_bm25_range = 1.0 / (bm25_max - bm25_min + f64::EPSILON);
+                let rev_cosine_range = 1.0 / (cosine_max - cosine_min + f64::EPSILON);
+                bm25_scores.iter_mut().zip(cosine_scores.iter()).for_each(|((_, bm25_score, _), (_, cosine_score, _))| {
+                    let norm_bm25 = (*bm25_score - bm25_min) * rev_bm25_range;
+                    let norm_cosine = (*cosine_score - cosine_min) * rev_cosine_range;
+                    *bm25_score = alpha * norm_bm25 + (1.0 - alpha) * norm_cosine;
+                });
+                bm25_scores
+            },
+            SimilarityAlgorithm::BM25PrfCosineSimilarity(k1, b, top_n, alpha) => {
+                let mut cosine_scores = self.scoring_cosine(&freq);
+                cosine_scores.retain(|(_, s, _)| !s.is_nan());
+                cosine_scores.sort_by(|a, b| b.1.total_cmp(&a.1));
+                let mut prf_freq = TokenFrequency::new();
+                cosine_scores.iter().take(*top_n).for_each(|(doc_key, _, _)| {
+                    if let Some(cos_freq) = self.get_tf_into_token_freq(doc_key) {
+                        prf_freq.add_tokens_from_freq(&cos_freq);
+                    }
+                });
+                let original_bm25_scores = self.scoring_bm25(&freq, *k1, *b);
+                let prf_bm25_scores = self.scoring_bm25(&prf_freq, *k1, *b);
+                // Normalize scores to [0, 1]
+                let (orig_min, orig_max) = original_bm25_scores.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), &(_, score, _)| {
+                    (min.min(score), max.max(score))
+                });
+                let (prf_min, prf_max) = prf_bm25_scores.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), &(_, score, _)| {
+                    (min.min(score), max.max(score))
+                });
+                let alpha = alpha.clamp(0.0, 1.0);
+                let rev_orig_range = 1.0 / (orig_max - orig_min + f64::EPSILON);
+                let rev_prf_range = 1.0 / (prf_max - prf_min + f64::EPSILON);
+                let result: Vec<(K, f64, u64)> = original_bm25_scores.iter().zip(prf_bm25_scores.iter()).map(|((key1, orig_score, doc_len), (key2, prf_score, _))| {
+                    let norm_orig = (*orig_score - orig_min) * rev_orig_range;
+                    let norm_prf = (*prf_score - prf_min) * rev_prf_range;
+                    let combined_score = alpha * norm_orig + (1.0 - alpha) * norm_prf;
+                    (key1.clone(), combined_score, *doc_len)
+                }).collect();
+                result
+            },
         };
 
         Hits { list: result }
