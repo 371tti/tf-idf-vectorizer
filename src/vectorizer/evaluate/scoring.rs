@@ -172,7 +172,7 @@ where
                 let alpha = alpha.clamp(0.0, 1.0);
                 let rev_orig_range = 1.0 / (orig_max - orig_min + f64::EPSILON);
                 let rev_prf_range = 1.0 / (prf_max - prf_min + f64::EPSILON);
-                let result: Vec<(K, f64, u64)> = original_bm25_scores.iter().zip(prf_bm25_scores.iter()).map(|((key1, orig_score, doc_len), (key2, prf_score, _))| {
+                let result: Vec<(K, f64, u64)> = original_bm25_scores.iter().zip(prf_bm25_scores.iter()).map(|((key1, orig_score, doc_len), (_, prf_score, _))| {
                     let norm_orig = (*orig_score - orig_min) * rev_orig_range;
                     let norm_prf = (*prf_score - prf_min) * rev_prf_range;
                     let combined_score = alpha * norm_orig + (1.0 - alpha) * norm_prf;
