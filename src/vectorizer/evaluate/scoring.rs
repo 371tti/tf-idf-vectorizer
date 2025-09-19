@@ -1,6 +1,7 @@
 use std::{cmp::Ordering, fmt::Debug};
 
 use num::{pow::Pow, Num};
+use rayon::prelude::*;
 
 use crate::{utils::{math::vector::ZeroSpVecTrait, normalizer::DeNormalizer}, vectorizer::{tfidf::TFIDFEngine, token::TokenFrequency, TFIDFVectorizer}};
 
@@ -98,8 +99,8 @@ where
 
 impl<N, K, E> TFIDFVectorizer<N, K, E>
 where
-    K: Clone + PartialEq,
-    N: Num + Copy + Into<f64> + DeNormalizer,
+    K: Clone + Sync + Send + PartialEq,
+    N: Num + Copy + Into<f64> + DeNormalizer + Send + Sync,
     E: TFIDFEngine<N>,
 {
     /// Calculate similarity scores based on query token frequency
@@ -189,15 +190,15 @@ where
 /// High-level search implementations
 impl<N, K, E> TFIDFVectorizer<N, K, E>
 where
-    K: Clone,
-    N: Num + Copy + Into<f64> + DeNormalizer,
+    K: Clone + Send + Sync + PartialEq,
+    N: Num + Copy + Into<f64> + DeNormalizer + Send + Sync,
     E: TFIDFEngine<N>,
 {
     /// Scoring by dot product
     fn scoring_dot(&self, freq: &TokenFrequency) -> Vec<(K, f64, u64)> {
         let (tf, tf_denormalize_num) = E::tf_vec(&freq, &self.token_dim_sample);
 
-        let doc_scores: Vec<(K, f64, u64)> = self.documents.iter().map(|doc| {(
+        let doc_scores: Vec<(K, f64, u64)> = self.documents.par_iter().map(|doc| {(
             doc.key.clone(),
             tf.raw_iter().map(|(idx, val)| {
                 let idf: f64 = self.idf.idf_vec.get(idx).copied().unwrap_or(N::zero()).denormalize(self.idf.denormalize_num);
@@ -215,7 +216,7 @@ where
     /// cosθ = A・B / (|A||B|)
     fn scoring_cosine(&self, freq: &TokenFrequency) -> Vec<(K, f64, u64)> {
         let (tf_1, tf_denormalize_num) = E::tf_vec(&freq, &self.token_dim_sample);
-        let doc_scores: Vec<(K, f64, u64)> = self.documents.iter().map(|doc| {
+        let doc_scores: Vec<(K, f64, u64)> = self.documents.par_iter().map(|doc| {
             let tf_1 = tf_1.raw_iter();
             let tf_2 = doc.tf_vec.raw_iter();
             let mut a_it = tf_1.fuse();
@@ -262,7 +263,7 @@ where
         let avg_l = self.documents.iter().map(|doc| doc.token_sum as f64).sum::<f64>() / self.documents.len() as f64;
         let rev_avg_l = 1.0 / avg_l;
 
-        let doc_scores: Vec<(K, f64, u64)> = self.documents.iter().map(|doc| {(
+        let doc_scores: Vec<(K, f64, u64)> = self.documents.par_iter().map(|doc| {(
             doc.key.clone(),
             {
                 let len_p = doc.token_sum as f64 * rev_avg_l;
@@ -284,7 +285,7 @@ where
         // Average document length
         let avg_l = self.documents.iter().map(|doc| doc.token_sum as f64).sum::<f64>() / self.documents.len() as f64;
         let rev_avg_l = 1.0 / avg_l;
-        let doc_scores: Vec<(K, f64, u64)> = self.documents.iter().map(|doc| {(
+        let doc_scores: Vec<(K, f64, u64)> = self.documents.par_iter().map(|doc| {(
             doc.key.clone(),
             {
                 let len_p = doc.token_sum as f64 * rev_avg_l;
@@ -308,7 +309,7 @@ where
         let avg_l = self.documents.iter().map(|doc| doc.token_sum as f64).sum::<f64>() / self.documents.len() as f64;
         let rev_avg_l = 1.0 / avg_l;
 
-        let doc_scores: Vec<(K, f64, u64)> = self.documents.iter().map(|doc| {(
+        let doc_scores: Vec<(K, f64, u64)> = self.documents.par_iter().map(|doc| {(
             doc.key.clone(),
             {
                 let len_p = doc.token_sum as f64 * rev_avg_l;

@@ -3,7 +3,7 @@ use indexmap::IndexSet;
 
 use crate::{utils::math::vector::{ZeroSpVec, ZeroSpVecTrait}, vectorizer::{corpus::Corpus, token::TokenFrequency}};
 
-pub trait TFIDFEngine<N>
+pub trait TFIDFEngine<N>: Send + Sync
 where
     N: num::Num + Copy,
 {

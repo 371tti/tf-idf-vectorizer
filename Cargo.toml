@@ -1,6 +1,6 @@
 [package]
 name = "tf-idf-vectorizer"
-version = "0.4.6"
+version = "0.4.7"
 edition = "2024"
 description = "A simple search and analyze engine"
 license = "MIT"
@@ -13,5 +13,6 @@ num = "0.4.3"
 dashmap = { version = "6.1.0", features = ["serde"] }
 ahash = "0.8.12"
 indexmap = { version = "2.11.1", features = ["serde"] }
+rayon = "1.11.0"
 
 
