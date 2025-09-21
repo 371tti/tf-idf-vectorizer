@@ -136,6 +136,17 @@ impl TokenFrequency {
     }
 }
 
+impl<T> From<&[T]> for TokenFrequency
+where
+    T: AsRef<str>,
+{
+    fn from(tokens: &[T]) -> Self {
+        let mut tf = TokenFrequency::new();
+        tf.add_tokens(tokens);
+        tf
+    }
+}
+
 /// Implementation for retrieving information from TokenFrequency
 impl TokenFrequency {
     /// Get a vector of all tokens and their counts
