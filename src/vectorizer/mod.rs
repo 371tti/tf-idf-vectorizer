@@ -13,7 +13,7 @@ use ::serde::{Deserialize, Serialize};
 use crate::{utils::{math::vector::{ZeroSpVec, ZeroSpVecTrait}, normalizer::DeNormalizer}, vectorizer::{corpus::Corpus, tfidf::{DefaultTFIDFEngine, TFIDFEngine}, token::TokenFrequency}};
 use ahash::RandomState;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TFIDFVectorizer<N = f32, K = String, E = DefaultTFIDFEngine>
 where
     N: Num + Copy,
@@ -30,7 +30,7 @@ where
     _marker: std::marker::PhantomData<E>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TFVector<N, K>
 where
     N: Num + Copy,
@@ -56,7 +56,7 @@ where
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct IDFVector<N>
 where
     N: Num,
