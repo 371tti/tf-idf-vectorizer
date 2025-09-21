@@ -128,8 +128,9 @@ where
 
 impl <N, K, E> TFIDFVectorizer<N, K, E>
 where
-    N: Num + Copy,
+    N: Num + Copy + Into<f64>,
     E: TFIDFEngine<N>,
+    K: PartialEq
 {
     /// Add a document
     /// The immediately referenced Corpus is also updated
@@ -155,6 +156,23 @@ where
         self.documents.push(doc);
     }
 
+    pub fn del_doc(&mut self, doc_id: &K)
+    where
+        K: PartialEq,
+    {
+        if let Some(pos) = self.documents.iter().position(|doc| &doc.key == doc_id) {
+            let doc = &self.documents[pos];
+            let token_set = doc.tf_vec.raw_iter()
+                .filter_map(|(idx, _)| self.token_dim_sample.get_index(idx).map(|s| s.as_str()))
+                .collect::<Vec<&str>>();
+
+            // コーパスからドキュメントのトークンを削除
+            self.corpus_ref.sub_set(&token_set);
+            // ドキュメントを削除
+            self.documents.remove(pos);
+        }
+    }
+
     /// Get TFVector by document ID
     pub fn get_tf(&self, key: &K) -> Option<&TFVector<N, K>>
     where
@@ -167,9 +185,6 @@ where
     /// If quantized, there may be some error
     /// Words not included in the corpus are ignored
     pub fn get_tf_into_token_freq(&self, key: &K) -> Option<TokenFrequency>
-    where
-        K: PartialEq,
-        N: Into<f64>,
     {
         if let Some(tf_vec) = self.get_tf(key) {
             let mut token_freq = TokenFrequency::new();
@@ -202,6 +217,10 @@ where
     /// Check if all tokens in the given TokenFrequency exist in the token dimension sample
     pub fn contains_tokens_from_freq(&self, freq: &TokenFrequency) -> bool {
         freq.token_set_ref_str().iter().all(|tok| self.token_dim_sample.contains(*tok))
+    }
+
+    pub fn doc_num(&self) -> usize {
+        self.documents.len()
     }
 
     /// add document to corpus
