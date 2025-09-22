@@ -165,7 +165,6 @@ where
             let token_set = doc.tf_vec.raw_iter()
                 .filter_map(|(idx, _)| self.token_dim_sample.get_index(idx).map(|s| s.as_str()))
                 .collect::<Vec<&str>>();
-
             // コーパスからドキュメントのトークンを削除
             self.corpus_ref.sub_set(&token_set);
             // ドキュメントを削除

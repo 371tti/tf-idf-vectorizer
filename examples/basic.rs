@@ -16,6 +16,8 @@ fn main() {
     let mut vectorizer: TFIDFVectorizer<u16> = TFIDFVectorizer::new(corpus);    
     vectorizer.add_doc("doc1".to_string(), &freq1);
     vectorizer.add_doc("doc2".to_string(), &freq2);
+    vectorizer.del_doc(&"doc1".to_string());
+    vectorizer.add_doc("doc3".to_string(), &freq1);
 
     // similarity search
     let mut query_tokens = TokenFrequency::new();

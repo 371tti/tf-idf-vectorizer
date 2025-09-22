@@ -37,24 +37,31 @@ impl Corpus {
     }
 
     /// Add a document's tokens to the corpus
-    pub fn add_set(&self, tokens: &[&str]) {
+    pub fn add_set<T>(&self, tokens: &[T])
+    where
+        T: AsRef<str>,
+    {
         self.add_num.fetch_add(1, Ordering::Relaxed);
         for token in tokens {
             self.token_counts
-                .entry(token.to_string())
+                .entry(token.as_ref().to_string())
                 .and_modify(|count| *count += 1)
                 .or_insert(1);
         }
     }
 
-    pub fn sub_set(&self, tokens: &[&str]) {
+    pub fn sub_set<T>(&self, tokens: &[T])
+    where
+        T: AsRef<str>,
+    {
         self.sub_num.fetch_add(1, Ordering::Relaxed);
         for token in tokens {
-            if let Some(mut count) = self.token_counts.get_mut(*token) {
+            if let Some(mut count) = self.token_counts.get_mut(token.as_ref()) {
                 if *count > 1 {
                     *count -= 1;
                 } else {
-                    self.token_counts.remove(*token);
+                    drop(count);
+                    self.token_counts.remove(token.as_ref());
                 }
             }
         }
