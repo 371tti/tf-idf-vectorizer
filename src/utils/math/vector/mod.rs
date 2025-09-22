@@ -24,7 +24,7 @@ where N: Num
 pub trait ZeroSpVecTrait<N>: Clone + Default + Index<usize, Output = N>
 where N: Num
 {
-    unsafe fn ind_ptr(&self) -> *mut usize;
+    unsafe fn ind_ptr(&self) -> *mut u32;
     unsafe fn val_ptr(&self) -> *mut N;
     unsafe fn raw_push(&mut self, index: usize, value: N);
     fn ind_binary_search(&self, index: &usize) -> Result<usize, usize>;
@@ -55,7 +55,7 @@ impl<N> ZeroSpVecTrait<N> for ZeroSpVec<N>
 where N: Num
 {
     #[inline]
-    unsafe fn ind_ptr(&self) -> *mut usize {
+    unsafe fn ind_ptr(&self) -> *mut u32 {
         self.buf.ind_ptr.as_ptr()
     }
 
@@ -79,7 +79,8 @@ where N: Num
             let val_ptr = self.val_ptr().add(self.nnz);
             let ind_ptr = self.ind_ptr().add(self.nnz);
             ptr::write(val_ptr, value);
-            ptr::write(ind_ptr, index);
+            debug_assert!(index <= u32::MAX as usize, "index overflow for u32 storage");
+            ptr::write(ind_ptr, index as u32);
         }
         self.nnz += 1;
     }
@@ -95,7 +96,7 @@ where N: Num
         let mut right = self.nnz - 1;
         while left < right {
             let mid = left + (right - left) / 2;
-            let mid_index = unsafe { ptr::read(self.ind_ptr().add(mid)) };
+            let mid_index = unsafe { ptr::read(self.ind_ptr().add(mid)) as usize };
             if mid_index == *index {
                 return Ok(mid);
             } else if mid_index < *index {
@@ -106,7 +107,7 @@ where N: Num
         }
 
         // ループ終了後 left == right の位置になっている
-        let final_index = unsafe { ptr::read(self.ind_ptr().add(left)) };
+        let final_index = unsafe { ptr::read(self.ind_ptr().add(left)) as usize };
         if final_index == *index {
             Ok(left)
         } else if final_index < *index {
@@ -204,7 +205,8 @@ where N: Num
                 let val_ptr = self.val_ptr().add(self.nnz);
                 let ind_ptr = self.ind_ptr().add(self.nnz);
                 ptr::write(val_ptr, elem);
-                ptr::write(ind_ptr, self.len);
+                debug_assert!(self.len <= u32::MAX as usize, "index overflow for u32 storage");
+                ptr::write(ind_ptr, self.len as u32);
             }
             self.nnz += 1;
         }
@@ -251,7 +253,7 @@ where N: Num
             return None;
         }
         unsafe {
-            Some(ptr::read(self.ind_ptr().add(index)))
+            Some(ptr::read(self.ind_ptr().add(index)) as usize)
         }
     }
 
@@ -484,7 +486,7 @@ where N: Num
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         if self.pos < self.vec.nnz() {
-            let index = unsafe { *self.vec.ind_ptr().add(self.pos) };
+            let index = unsafe { *self.vec.ind_ptr().add(self.pos) as usize };
             let value = unsafe { &*self.vec.val_ptr().add(self.pos) };
             self.pos += 1;
             Some((index, value))
@@ -495,7 +497,7 @@ where N: Num
 
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.vec.nnz(), Some(self.vec.len()))
+        (self.vec.nnz().saturating_sub(self.pos), Some(self.vec.len()))
     }
 }
 
@@ -539,7 +541,7 @@ struct RawZeroSpVec<N>
 where N: Num 
 {
     val_ptr: NonNull<N>,
-    ind_ptr: NonNull<usize>,
+    ind_ptr: NonNull<u32>,
     /// cap 定義
     /// 0 => メモリ未確保 (flag)
     /// usize::MAX =>  zero size struct (ZST) として定義 処理の簡略化を実施 (flag)
@@ -570,7 +572,7 @@ where N: Num
     fn grow(&mut self) {
         unsafe {
             let val_elem_size = mem::size_of::<N>();
-            let ind_elem_size = mem::size_of::<usize>();
+            let ind_elem_size = mem::size_of::<u32>();
 
             // 安全性: ZSTの場合growはcapを超えた場合にしか呼ばれない
             // これは必然的にオーバーフローしていることをしめしている
@@ -578,17 +580,17 @@ where N: Num
 
             // アライメントの取得 適切なメモリ確保を行うため
             let t_align = mem::align_of::<N>();
-            let usize_align = mem::align_of::<usize>();
+            let usize_align = mem::align_of::<u32>();
 
             // アロケーション
-            let (new_cap, val_ptr, ind_ptr): (usize, *mut N, *mut usize) = 
+            let (new_cap, val_ptr, ind_ptr): (usize, *mut N, *mut u32) = 
                 if self.cap == 0 {
                     let new_val_layout = Layout::from_size_align(val_elem_size, t_align).expect("Failed to create memory layout");
                     let new_ind_layout = Layout::from_size_align(ind_elem_size, usize_align).expect("Failed to create memory layout");
                     (
                         1,
                         alloc(new_val_layout) as *mut N,
-                        alloc(new_ind_layout) as *mut usize,
+                        alloc(new_ind_layout) as *mut u32,
                     )
                 } else {
                     // 効率化: cap * 2 でメモリを確保する 見た目上はO(log n)の増加を実現
@@ -598,7 +600,7 @@ where N: Num
                     (
                         new_cap,
                         realloc(self.val_ptr.as_ptr() as *mut u8, new_val_layout, val_elem_size * new_cap) as *mut N,
-                        realloc(self.ind_ptr.as_ptr() as *mut u8, new_ind_layout, ind_elem_size * new_cap) as *mut usize,
+                        realloc(self.ind_ptr.as_ptr() as *mut u8, new_ind_layout, ind_elem_size * new_cap) as *mut u32,
                     )
                 };
 
@@ -618,15 +620,15 @@ where N: Num
     fn cap_set(&mut self) {
         unsafe {
             let val_elem_size = mem::size_of::<N>();
-            let ind_elem_size = mem::size_of::<usize>();
+            let ind_elem_size = mem::size_of::<u32>();
 
             let t_align = mem::align_of::<N>();
-            let usize_align = mem::align_of::<usize>();
+            let usize_align = mem::align_of::<u32>();
 
             let new_val_layout = Layout::from_size_align(val_elem_size * self.cap, t_align).expect("Failed to create memory layout");
             let new_ind_layout = Layout::from_size_align(ind_elem_size * self.cap, usize_align).expect("Failed to create memory layout");
             let new_val_ptr = alloc(new_val_layout) as *mut N;
-            let new_ind_ptr = alloc(new_ind_layout) as *mut usize;
+            let new_ind_ptr = alloc(new_ind_layout) as *mut u32;
             if new_val_ptr.is_null() || new_ind_ptr.is_null() {
                 oom();
             }
@@ -639,15 +641,15 @@ where N: Num
     fn re_cap_set(&mut self) {
         unsafe {
             let val_elem_size = mem::size_of::<N>();
-            let ind_elem_size = mem::size_of::<usize>();
+            let ind_elem_size = mem::size_of::<u32>();
 
             let t_align = mem::align_of::<N>();
-            let usize_align = mem::align_of::<usize>();
+            let usize_align = mem::align_of::<u32>();
 
             let new_val_layout = Layout::from_size_align(val_elem_size * self.cap, t_align).expect("Failed to create memory layout");
             let new_ind_layout = Layout::from_size_align(ind_elem_size * self.cap, usize_align).expect("Failed to create memory layout");
             let new_val_ptr = realloc(self.val_ptr.as_ptr() as *mut u8, new_val_layout, val_elem_size * self.cap) as *mut N;
-            let new_ind_ptr = realloc(self.ind_ptr.as_ptr() as *mut u8, new_ind_layout, ind_elem_size * self.cap) as *mut usize;
+            let new_ind_ptr = realloc(self.ind_ptr.as_ptr() as *mut u8, new_ind_layout, ind_elem_size * self.cap) as *mut u32;
             if new_val_ptr.is_null() || new_ind_ptr.is_null() {
                 oom();
             }
@@ -675,15 +677,15 @@ where N: Num
             }
 
             let val_elem_size = mem::size_of::<N>();
-            let ind_elem_size = mem::size_of::<usize>();
+            let ind_elem_size = mem::size_of::<u32>();
 
             let t_align = mem::align_of::<N>();
-            let usize_align = mem::align_of::<usize>();
+            let usize_align = mem::align_of::<u32>();
 
             let new_val_layout = Layout::from_size_align(val_elem_size * self.cap, t_align).expect("Failed to create memory layout");
             let new_ind_layout = Layout::from_size_align(ind_elem_size * self.cap, usize_align).expect("Failed to create memory layout");
             let new_val_ptr = alloc(new_val_layout) as *mut N;
-            let new_ind_ptr = alloc(new_ind_layout) as *mut usize;
+            let new_ind_ptr = alloc(new_ind_layout) as *mut u32;
             if new_val_ptr.is_null() || new_ind_ptr.is_null() {
                 oom();
             }
@@ -715,10 +717,10 @@ where N: Num
             }
 
             let val_elem_size = mem::size_of::<N>();
-            let ind_elem_size = mem::size_of::<usize>();
+            let ind_elem_size = mem::size_of::<u32>();
 
             let t_align = mem::align_of::<N>();
-            let usize_align = mem::align_of::<usize>();
+            let usize_align = mem::align_of::<u32>();
 
             let new_val_layout = Layout::from_size_align(val_elem_size * self.cap, t_align).expect("Failed to create memory layout");
             let new_ind_layout = Layout::from_size_align(ind_elem_size * self.cap, usize_align).expect("Failed to create memory layout");

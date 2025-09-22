@@ -21,9 +21,9 @@ where
         //  entries = self.raw_iter().map(|(idx, entry)| (idx as u64, *entry)).collect();
         unsafe {
             for i in 0..self.nnz {
-                let idx = *self.ind_ptr().add(i);
+                let idx = *self.ind_ptr().add(i) as u64;
                 let val = *self.val_ptr().add(i);
-                entries.push((idx as u64, val));
+                entries.push((idx, val));
             }
         }
         state.serialize_field("entries", &entries)?;
@@ -71,7 +71,8 @@ where
                 let mut vec = ZeroSpVec::with_capacity(nnz);
                 vec.len = len;
                 for (index, value) in entries {
-                    unsafe { vec.raw_push(index as usize, value) };
+                    let idx_u32: u32 = u32::try_from(index).map_err(|_| DeError::custom("index overflow for u32 storage"))?;
+                    unsafe { vec.raw_push(idx_u32 as usize, value) };
                 }
                 Ok(vec)
             }

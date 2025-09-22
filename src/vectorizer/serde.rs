@@ -19,7 +19,7 @@ where
     /// TF vectors for documents
     pub documents: Vec<TFVector<N, K>>,
     /// Token dimension sample for TF vectors
-    pub token_dim_sample: IndexSet<String, RandomState>,
+    pub token_dim_sample: IndexSet<Box<str>, RandomState>,
     /// IDF vector
     pub idf: IDFVector<N>,
     #[serde(default, skip_serializing, skip_deserializing)]

@@ -13,7 +13,7 @@ pub struct Corpus {
     /// for update notify
     pub sub_num: AtomicU64,
     // token counts in corpus
-    pub token_counts: DashMap<String, u64, RandomState>,
+    pub token_counts: DashMap<Box<str>, u64, RandomState>,
 }
 
 impl Clone for Corpus {
@@ -44,7 +44,7 @@ impl Corpus {
         self.add_num.fetch_add(1, Ordering::Relaxed);
         for token in tokens {
             self.token_counts
-                .entry(token.as_ref().to_string())
+                .entry(token.as_ref().into())
                 .and_modify(|count| *count += 1)
                 .or_insert(1);
         }

@@ -22,7 +22,7 @@ where
     /// Document's TF Vector
     pub documents: Vec<TFVector<N, K>>,
     /// TF Vector's token dimension sample
-    pub token_dim_sample: IndexSet<String, RandomState>,
+    pub token_dim_sample: IndexSet<Box<str>, RandomState>,
     /// Corpus reference
     pub corpus_ref: Arc<Corpus>,
     /// IDF Vector
@@ -141,7 +141,7 @@ where
         // 新語彙を差分追加 (O(|doc_vocab|))
         for tok in doc.token_set_ref_str() {
             if !self.token_dim_sample.contains(tok) {
-                self.token_dim_sample.insert(tok.to_string());
+                self.token_dim_sample.insert(tok.into());
             }
         }
 
@@ -163,7 +163,7 @@ where
         if let Some(pos) = self.documents.iter().position(|doc| &doc.key == doc_id) {
             let doc = &self.documents[pos];
             let token_set = doc.tf_vec.raw_iter()
-                .filter_map(|(idx, _)| self.token_dim_sample.get_index(idx).map(|s| s.as_str()))
+                .filter_map(|(idx, _)| self.token_dim_sample.get_index(idx).map(|s| s.as_ref()))
                 .collect::<Vec<&str>>();
             // コーパスからドキュメントのトークンを削除
             self.corpus_ref.sub_set(&token_set);
