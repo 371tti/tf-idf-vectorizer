@@ -1,6 +1,6 @@
 [package]
 name = "tf-idf-vectorizer"
-version = "0.4.12"
+version = "0.5.13"
 edition = "2024"
 description = "A simple search and analyze engine"
 license = "MIT"

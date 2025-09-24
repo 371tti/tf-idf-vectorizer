@@ -16,17 +16,17 @@ where
         state.serialize_field("len", &(self.len as u64))?;
         state.serialize_field("nnz", &(self.nnz as u64))?;
         
-        // entries: (index, value) のVecとして順序付きに出力する
-        let mut entries = Vec::with_capacity(self.nnz);
-        //  entries = self.raw_iter().map(|(idx, entry)| (idx as u64, *entry)).collect();
+        // inds/vals: バッファをそのまま配列として出力する（タプルを避ける）
+        let mut inds: Vec<u32> = Vec::with_capacity(self.nnz);
+        let mut vals: Vec<N> = Vec::with_capacity(self.nnz);
         unsafe {
             for i in 0..self.nnz {
-                let idx = *self.ind_ptr().add(i) as u64;
-                let val = *self.val_ptr().add(i);
-                entries.push((idx, val));
+                inds.push(*self.ind_ptr().add(i));
+                vals.push(*self.val_ptr().add(i));
             }
         }
-        state.serialize_field("entries", &entries)?;
+        state.serialize_field("inds", &inds)?;
+        state.serialize_field("vals", &vals)?;
         state.end()
     }
 }
@@ -56,30 +56,53 @@ where
             where A: MapAccess<'de> {
                 let mut len = None;
                 let mut nnz = None;
-                let mut entries = None;
+                let mut entries: Option<Vec<(u64, N)>> = None; // 後方互換
+                let mut inds: Option<Vec<u32>> = None;
+                let mut vals: Option<Vec<N>> = None;
                 while let Some(key) = map.next_key::<String>()? {
                     match key.as_str() {
                         "len" => len = Some(map.next_value::<u64>()? as usize),
                         "nnz" => nnz = Some(map.next_value::<u64>()? as usize),
+                        // 旧形式: Vec<(u64, N)>
                         "entries" => entries = Some(map.next_value::<Vec<(u64, N)>>()?),
+                        // 新形式: inds/vals
+                        "inds" => inds = Some(map.next_value::<Vec<u32>>()?),
+                        "vals" => vals = Some(map.next_value::<Vec<N>>()?),
                         _ => { let _: serde::de::IgnoredAny = map.next_value()?; }
                     }
                 }
                 let len = len.ok_or_else(|| DeError::missing_field("len"))?;
                 let nnz = nnz.ok_or_else(|| DeError::missing_field("nnz"))?;
-                let entries = entries.ok_or_else(|| DeError::missing_field("entries"))?;
-                let mut vec = ZeroSpVec::with_capacity(nnz);
-                vec.len = len;
-                for (index, value) in entries {
-                    let idx_u32: u32 = u32::try_from(index).map_err(|_| DeError::custom("index overflow for u32 storage"))?;
-                    unsafe { vec.raw_push(idx_u32 as usize, value) };
+                // 新形式（inds/vals）があればそれを優先、なければ旧形式（entries）を使う
+                if let (Some(inds), Some(vals)) = (inds, vals) {
+                    if inds.len() != vals.len() {
+                        return Err(DeError::custom("inds and vals length mismatch"));
+                    }
+                    if inds.len() != nnz {
+                        return Err(DeError::custom("nnz does not match inds/vals length"));
+                    }
+                    let mut vec = ZeroSpVec::with_capacity(nnz);
+                    vec.len = len;
+                    for i in 0..nnz {
+                        unsafe { vec.raw_push(inds[i] as usize, vals[i]) };
+                    }
+                    Ok(vec)
+                } else if let Some(entries) = entries {
+                    let mut vec = ZeroSpVec::with_capacity(nnz);
+                    vec.len = len;
+                    for (index, value) in entries {
+                        let idx_u32: u32 = u32::try_from(index).map_err(|_| DeError::custom("index overflow for u32 storage"))?;
+                        unsafe { vec.raw_push(idx_u32 as usize, value) };
+                    }
+                    Ok(vec)
+                } else {
+                    Err(DeError::custom("missing entries or inds/vals"))
                 }
-                Ok(vec)
             }
         }
         deserializer.deserialize_struct(
             "ZeroSpVec",
-            &["len", "nnz", "entries"],
+            &["len", "nnz", "inds", "vals", "entries"],
             ZeroSpVecVisitor { marker: std::marker::PhantomData },
         )
     }
