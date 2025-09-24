@@ -26,6 +26,19 @@
 				"$rustc"
 			],
 			"group": "build"
+		},
+		{
+			"label": "Cargo Build",
+			"type": "shell",
+			"command": "cargo",
+			"args": [
+				"build"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$rustc"
+			],
+			"group": "build"
 		}
 	]
 }
