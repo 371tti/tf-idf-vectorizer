@@ -116,6 +116,22 @@ where
     /// Does not check the IDF vector (can be called with immutable reference)
     /// Call update_idf() manually if needed
     pub fn similarity_uncheck_idf(&self, freq: &TokenFrequency, algorithm: &SimilarityAlgorithm) -> Hits<K> {
+        // helper: safe min-max 正規化 (全要素同値なら 0.5 固定を返し順位保持)
+        #[inline]
+        fn normalize_values(mut vals: Vec<f64>) -> (Vec<f64>, f64, f64) {
+            let mut min_v = f64::INFINITY;
+            let mut max_v = f64::NEG_INFINITY;
+            for &v in &vals { if v < min_v { min_v = v } if v > max_v { max_v = v } }
+            let range = max_v - min_v;
+            if !range.is_finite() || range <= f64::EPSILON {
+                for v in &mut vals { *v = 0.5; } // 全同値: 差が無いので中央 0.5 に寄せる
+                return (vals, min_v, max_v);
+            }
+            let inv = 1.0 / range;
+            for v in &mut vals { *v = (*v - min_v) * inv; }
+            (vals, min_v, max_v)
+        }
+
         let result = match algorithm {
             SimilarityAlgorithm::Dot => self.scoring_dot(&freq),
             SimilarityAlgorithm::CosineSimilarity => self.scoring_cosine(&freq),
@@ -123,33 +139,28 @@ where
             SimilarityAlgorithm::BM25plus(k1, b, delta) => self.scoring_bm25plus(&freq, *k1, *b, *delta),
             SimilarityAlgorithm::BM25L(k1, b) => self.scoring_bm25l(&freq, *k1, *b),
             SimilarityAlgorithm::BM25CosineFilter(k1, b) => {
-                let mut bm25_scores = self.scoring_bm25(&freq, *k1, *b);
-                let cosine_scores = self.scoring_cosine(&freq);
-                // already sorted by document order, so we can multiply directly
-                bm25_scores.iter_mut().zip(cosine_scores.iter()).for_each(|((_, bm25_score, _), (_, cosine_score, _))| {
-                    *bm25_score *= *cosine_score;
-                });
-                bm25_scores
+                // 直接乗算だと idf の累乗 (≈idf^3) になり偏りが強すぎるため双方を min-max 正規化後に幾何平均に変更
+                let bm25 = self.scoring_bm25(&freq, *k1, *b);
+                let cosine = self.scoring_cosine(&freq); // こちらは idf^2 を内包している
+                let bm25_vals: Vec<f64> = bm25.iter().map(|(_, s, _)| *s).collect();
+                let cosine_vals: Vec<f64> = cosine.iter().map(|(_, s, _)| *s).collect();
+                let (bm25_norm, _, _) = normalize_values(bm25_vals);
+                let (cosine_norm, _, _) = normalize_values(cosine_vals);
+                bm25.into_iter().zip(cosine_norm.into_iter()).zip(bm25_norm.into_iter())
+                    .map(|(((k, _s, l), c_n), b_n)| (k, (b_n * c_n).sqrt(), l)) // 幾何平均
+                    .collect()
             },
             SimilarityAlgorithm::BM25CosineNormalizedLinearCombination(k1, b, alpha) => {
-                let mut bm25_scores = self.scoring_bm25(&freq, *k1, *b);
-                let cosine_scores = self.scoring_cosine(&freq);
-                // Normalize scores to [0, 1]
-                let (bm25_min, bm25_max) = bm25_scores.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), &(_, score, _)| {
-                    (min.min(score), max.max(score))
-                });
-                let (cosine_min, cosine_max) = cosine_scores.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), &(_, score, _)| {
-                    (min.min(score), max.max(score))
-                });
                 let alpha = alpha.clamp(0.0, 1.0);
-                let rev_bm25_range = 1.0 / (bm25_max - bm25_min + f64::EPSILON);
-                let rev_cosine_range = 1.0 / (cosine_max - cosine_min + f64::EPSILON);
-                bm25_scores.iter_mut().zip(cosine_scores.iter()).for_each(|((_, bm25_score, _), (_, cosine_score, _))| {
-                    let norm_bm25 = (*bm25_score - bm25_min) * rev_bm25_range;
-                    let norm_cosine = (*cosine_score - cosine_min) * rev_cosine_range;
-                    *bm25_score = alpha * norm_bm25 + (1.0 - alpha) * norm_cosine;
-                });
-                bm25_scores
+                let bm25 = self.scoring_bm25(&freq, *k1, *b);
+                let cosine = self.scoring_cosine(&freq);
+                let bm25_vals: Vec<f64> = bm25.iter().map(|(_, s, _)| *s).collect();
+                let cosine_vals: Vec<f64> = cosine.iter().map(|(_, s, _)| *s).collect();
+                let (bm25_norm, _, _) = normalize_values(bm25_vals);
+                let (cosine_norm, _, _) = normalize_values(cosine_vals);
+                bm25.into_iter().zip(bm25_norm.into_iter()).zip(cosine_norm.into_iter())
+                    .map(|(((k, _s, l), b_n), c_n)| (k, alpha * b_n + (1.0 - alpha) * c_n, l))
+                    .collect()
             },
             SimilarityAlgorithm::BM25PrfCosineSimilarity(k1, b, top_n, alpha) => {
                 let mut cosine_scores = self.scoring_cosine(&freq);
@@ -163,23 +174,14 @@ where
                 });
                 let original_bm25_scores = self.scoring_bm25(&freq, *k1, *b);
                 let prf_bm25_scores = self.scoring_bm25(&prf_freq, *k1, *b);
-                // Normalize scores to [0, 1]
-                let (orig_min, orig_max) = original_bm25_scores.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), &(_, score, _)| {
-                    (min.min(score), max.max(score))
-                });
-                let (prf_min, prf_max) = prf_bm25_scores.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), &(_, score, _)| {
-                    (min.min(score), max.max(score))
-                });
                 let alpha = alpha.clamp(0.0, 1.0);
-                let rev_orig_range = 1.0 / (orig_max - orig_min + f64::EPSILON);
-                let rev_prf_range = 1.0 / (prf_max - prf_min + f64::EPSILON);
-                let result: Vec<(K, f64, u64)> = original_bm25_scores.iter().zip(prf_bm25_scores.iter()).map(|((key1, orig_score, doc_len), (_, prf_score, _))| {
-                    let norm_orig = (*orig_score - orig_min) * rev_orig_range;
-                    let norm_prf = (*prf_score - prf_min) * rev_prf_range;
-                    let combined_score = alpha * norm_orig + (1.0 - alpha) * norm_prf;
-                    (key1.clone(), combined_score, *doc_len)
-                }).collect();
-                result
+                let orig_vals: Vec<f64> = original_bm25_scores.iter().map(|(_, s, _)| *s).collect();
+                let prf_vals: Vec<f64> = prf_bm25_scores.iter().map(|(_, s, _)| *s).collect();
+                let (orig_norm, _, _) = normalize_values(orig_vals);
+                let (prf_norm, _, _) = normalize_values(prf_vals);
+                original_bm25_scores.into_iter().zip(prf_norm.into_iter()).zip(orig_norm.into_iter())
+                    .map(|(((k, _s, l), prf_n), orig_n)| (k, alpha * orig_n + (1.0 - alpha) * prf_n, l))
+                    .collect()
             },
         };
 
@@ -226,10 +228,19 @@ where
             let mut norm_a = 0_f64;
             let mut norm_b = 0_f64;
             let mut dot = 0_f64;
+            // helper closure to fetch idf weight (denormalized). Missing indices get zero.
+            let idf_w = |i: usize| -> f64 {
+                self.idf
+                    .idf_vec
+                    .get(i)
+                    .copied()
+                    .unwrap_or(N::zero())
+                    .denormalize(self.idf.denormalize_num)
+            };
             while let (Some((ia, va)), Some((ib, vb))) = (a_next, b_next) {
                 match ia.cmp(&ib) {
                     Ordering::Equal => {
-                        let idf = self.idf.idf_vec.get(ia).copied().unwrap_or(N::zero()).denormalize(self.idf.denormalize_num);
+                        let idf = idf_w(ia);
                         norm_a += (va.denormalize(tf_denormalize_num) * idf).pow(2);
                         norm_b += (vb.denormalize(doc.denormalize_num) * idf).pow(2);
                         dot += va.denormalize(tf_denormalize_num) * vb.denormalize(doc.denormalize_num) * (idf * idf);
@@ -237,14 +248,28 @@ where
                         b_next = b_it.next();
                     }
                     Ordering::Less => {
-                        norm_a += (va.denormalize(tf_denormalize_num) * self.idf.idf_vec.get(ia).copied().unwrap_or(N::zero()).denormalize(self.idf.denormalize_num)).pow(2);
+                        let idf = idf_w(ia);
+                        norm_a += (va.denormalize(tf_denormalize_num) * idf).pow(2);
                         a_next = a_it.next();
                     }
                     Ordering::Greater => {
-                        norm_b += (vb.denormalize(doc.denormalize_num) * self.idf.idf_vec.get(ib).copied().unwrap_or(N::zero()).denormalize(self.idf.denormalize_num)).pow(2);
+                        let idf = idf_w(ib);
+                        norm_b += (vb.denormalize(doc.denormalize_num) * idf).pow(2);
                         b_next = b_it.next();
                     }
                 }
+            }
+            // Remaining terms on the query side (a)
+            while let Some((ia, va)) = a_next {
+                let idf = idf_w(ia);
+                norm_a += (va.denormalize(tf_denormalize_num) * idf).pow(2);
+                a_next = a_it.next();
+            }
+            // Remaining terms on the document side (b)
+            while let Some((ib, vb)) = b_next {
+                let idf = idf_w(ib);
+                norm_b += (vb.denormalize(doc.denormalize_num) * idf).pow(2);
+                b_next = b_it.next();
             }
             let norm_a = norm_a.sqrt();
             let norm_b = norm_b.sqrt();
@@ -292,8 +317,9 @@ where
                 tf.raw_iter().map(|(idx, _val)| {
                     let idf: f64 = self.idf.idf_vec.get(idx).copied().unwrap_or(N::zero()).denormalize(self.idf.denormalize_num);
                     let tf: f64 = doc.tf_vec.get(idx).copied().unwrap_or(N::zero()).denormalize(doc.denormalize_num);
-                    // BM25+ scoring formula
-                    idf * ((tf + delta) / (tf + k1 * (1.0 - b + (b * len_p))))
+                    // BM25+ scoring formula (missing (k1+1) factor was added)
+                    let denom = tf + k1 * (1.0 - b + (b * len_p));
+                    idf * (((tf + delta) * (k1 + 1.0)) / denom)
                 }).sum::<f64>()
             },
             doc.token_sum
@@ -316,9 +342,11 @@ where
                 tf.raw_iter().map(|(idx, _val)| {
                     let idf: f64 = self.idf.idf_vec.get(idx).copied().unwrap_or(N::zero()).denormalize(self.idf.denormalize_num);
                     let tf: f64 = doc.tf_vec.get(idx).copied().unwrap_or(N::zero()).denormalize(doc.denormalize_num);
-                    let tf = tf * (1.0 - b + b * len_p);
-                    // BM25 scoring formula
-                    idf * ((tf * k1_p) / (tf + k1 * (1.0 - b + (b * len_p))))
+                    // BM25L: normalize term frequency by length factor then apply BM25 form
+                    // tf' = tf / ( (1 - b) + b * (len/avg_len) )
+                    let norm = 1.0 - b + b * len_p;
+                    let tf_norm = if norm > 0.0 { tf / norm } else { tf }; // safety
+                    idf * ((tf_norm * k1_p) / (tf_norm + k1))
                 }).sum::<f64>()
             },
             doc.token_sum
