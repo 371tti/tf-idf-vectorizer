@@ -119,16 +119,47 @@ where
         // helper: safe min-max 正規化 (全要素同値なら 0.5 固定を返し順位保持)
         #[inline]
         fn normalize_values(mut vals: Vec<f64>) -> (Vec<f64>, f64, f64) {
+            // min / max 計算 (NaN/Inf は除外)
             let mut min_v = f64::INFINITY;
             let mut max_v = f64::NEG_INFINITY;
-            for &v in &vals { if v < min_v { min_v = v } if v > max_v { max_v = v } }
+            for &v in &vals {
+                if !v.is_finite() { continue; }
+                if v < min_v { min_v = v; }
+                if v > max_v { max_v = v; }
+            }
+            if !min_v.is_finite() { // 全て非有限
+                for v in &mut vals { *v = 0.5; }
+                return (vals, f64::NAN, f64::NAN);
+            }
             let range = max_v - min_v;
-            if !range.is_finite() || range <= f64::EPSILON {
-                for v in &mut vals { *v = 0.5; } // 全同値: 差が無いので中央 0.5 に寄せる
+            // 相対トレランス: 巨大値スケールでも安定
+            let tol = (max_v.abs().max(min_v.abs())) * 1e-12 + 1e-15;
+            if !range.is_finite() || range <= tol {
+                // ほぼ一定 → 0.5 だがタイブレーク用にわずかに減少させ順位安定 (最大のみ 0.5)
+                let n = vals.len();
+                if n == 0 { return (vals, min_v, max_v); }
+                for (i,v) in vals.iter_mut().enumerate() {
+                    // 1e-15 * i で単調減少 (表示丸めで消えるがソートでは差異)
+                    *v = 0.5 - (i as f64)*1e-15;
+                }
                 return (vals, min_v, max_v);
             }
             let inv = 1.0 / range;
-            for v in &mut vals { *v = (*v - min_v) * inv; }
+            for v in &mut vals {
+                if v.is_finite() {
+                    *v = (*v - min_v) * inv; // [0,1]
+                } else {
+                    *v = 0.0; // 非有限は最下位近くへ
+                }
+            }
+            // 最大値タイ (==1.0) が複数なら僅差オフセット付与してつぶれ回避
+            let max_indices: Vec<usize> = vals.iter().enumerate().filter(|(_,v)| **v >= 1.0).map(|(i,_)| i).collect();
+            if max_indices.len() > 1 {
+                // 安全のため最大を厳密 1.0, 以降 1.0 - ε*i
+                for (rank,&idx) in max_indices.iter().enumerate() {
+                    vals[idx] = 1.0 - (rank as f64)*1e-12; // rank=0 は 1.0
+                }
+            }
             (vals, min_v, max_v)
         }
 
@@ -317,7 +348,7 @@ where
                 tf.raw_iter().map(|(idx, _val)| {
                     let idf: f64 = self.idf.idf_vec.get(idx).copied().unwrap_or(N::zero()).denormalize(self.idf.denormalize_num);
                     let tf: f64 = doc.tf_vec.get(idx).copied().unwrap_or(N::zero()).denormalize(doc.denormalize_num);
-                    // BM25+ scoring formula (missing (k1+1) factor was added)
+                    // BM25+ scoring formula
                     let denom = tf + k1 * (1.0 - b + (b * len_p));
                     idf * (((tf + delta) * (k1 + 1.0)) / denom)
                 }).sum::<f64>()
