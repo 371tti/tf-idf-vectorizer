@@ -27,7 +27,7 @@ where N: Num
     unsafe fn ind_ptr(&self) -> *mut u32;
     unsafe fn val_ptr(&self) -> *mut N;
     unsafe fn raw_push(&mut self, index: usize, value: N);
-    fn ind_binary_search(&self, index: &usize) -> Result<usize, usize>;
+    fn ind_binary_search(&self, index: usize, cut_down: usize) -> Result<usize, usize>;
     fn new() -> Self;
     fn with_capacity(cap: usize) -> Self;
     fn reserve(&mut self, additional: usize);
@@ -42,6 +42,7 @@ where N: Num
     fn push(&mut self, elem: N);
     fn pop(&mut self) -> Option<N>;
     fn get(&self, index: usize) -> Option<&N>;
+    fn get_with_cut_down(&self, index: usize, cut_down: usize) -> Option<&N>;
     fn get_ind(&self, index: usize) -> Option<usize>;
     fn remove(&mut self, index: usize) -> N;
     fn from_vec(vec: Vec<N>) -> Self;
@@ -86,20 +87,20 @@ where N: Num
     }
 
     #[inline]
-    fn ind_binary_search(&self, index: &usize) -> Result<usize, usize> {
+    fn ind_binary_search(&self, index: usize, cut_down: usize) -> Result<usize, usize> {
         // 要素が無い場合は「まだどこにも挿入されていない」ので Err(0)
         if self.nnz == 0 {
             return Err(0);
         }
 
-        let mut left = 0;
+        let mut left = cut_down;
         let mut right = self.nnz - 1;
         while left < right {
             let mid = left + (right - left) / 2;
             let mid_index = unsafe { ptr::read(self.ind_ptr().add(mid)) as usize };
-            if mid_index == *index {
+            if mid_index == index {
                 return Ok(mid);
-            } else if mid_index < *index {
+            } else if mid_index < index {
                 left = mid + 1;
             } else {
                 right = mid;
@@ -108,9 +109,9 @@ where N: Num
 
         // ループ終了後 left == right の位置になっている
         let final_index = unsafe { ptr::read(self.ind_ptr().add(left)) as usize };
-        if final_index == *index {
+        if final_index == index {
             Ok(left)
-        } else if final_index < *index {
+        } else if final_index < index {
             Err(left + 1)
         } else {
             Err(left)
@@ -235,7 +236,24 @@ where N: Num
         if index >= self.len {
             return None;
         }
-        match self.ind_binary_search(&index) {
+        match self.ind_binary_search(index, 0) {
+            Ok(idx) => {
+                unsafe {
+                    Some(&*self.val_ptr().add(idx))
+                }
+            },
+            Err(_) => {
+                Some(&self.zero)
+            }
+        }
+    }
+
+    #[inline]
+    fn get_with_cut_down(&self, index: usize, cut_down: usize) -> Option<&N> {
+        if index >= self.len {
+            return None;
+        }
+        match self.ind_binary_search(index, cut_down) {
             Ok(idx) => {
                 unsafe {
                     Some(&*self.val_ptr().add(idx))
@@ -277,7 +295,7 @@ where N: Num
         // 論理的な要素数は常に1つ減る
         self.len -= 1;
 
-        match self.ind_binary_search(&index) {
+        match self.ind_binary_search(index, 0) {
             Ok(i) => {
                 // 今回削除する要素を読みだす
                 let removed_val = unsafe {

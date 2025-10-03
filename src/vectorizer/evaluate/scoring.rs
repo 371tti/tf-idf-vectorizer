@@ -262,4 +262,13 @@ where
         )}).collect();
         doc_scores
     }
+
+    fn search_bm25(&self, positive_freq: &TokenFrequency, negative_freq: &TokenFrequency, k1: f64, b: f64) -> Vec<(K, f64, u64)> {
+        self.scoring_search(positive_freq, negative_freq, |tf1, tf2, ignore_tf1, idf, avg_l| {
+            let k1_p = k1 + 1.0;
+            let len_p = 1.0; // Placeholder for document length normalization
+            // BM25 scoring formula with ignore frequency
+            idf * ((tf1 * k1_p) / (tf1 + k1 * (1.0 - b + (b * len_p)))) - ignore_tf1
+        })
+    }
 }
