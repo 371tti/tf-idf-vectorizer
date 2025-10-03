@@ -97,26 +97,6 @@ where
 
         Hits { list: result }
     }
-
-    fn search(&mut self, positive_freq: &TokenFrequency, negative_freq: &TokenFrequency, algorithm: &SimilarityAlgorithm) -> Hits<K> {
-        self.update_idf();
-        self.search_uncheck_idf(positive_freq, negative_freq, algorithm)
-    }
-
-    fn search_uncheck_idf(&self, positive_freq: &TokenFrequency, negative_freq: &TokenFrequency, algorithm: &SimilarityAlgorithm) -> Hits<K> {
-        let result = match algorithm {
-            SimilarityAlgorithm::Dot => self.scoring_search(positive_freq, negative_freq, |tf1, tf2, ignore_tf1, idf, _avg_l| {
-                0.0
-            }),
-            SimilarityAlgorithm::CosineSimilarity => self.scoring_search(positive_freq, negative_freq, |tf1, tf2, ignore_tf1, idf, _avg_l| {
-                0.0
-            }),
-            SimilarityAlgorithm::BM25(k1, b) => self.scoring_search(positive_freq, negative_freq, |tf1, tf2, ignore_tf1, idf, avg_l| {
-                0.0
-            }),
-        };
-        Hits { list: result }
-    }
 }
 
 /// High-level search implementations
@@ -132,13 +112,19 @@ where
 
         let doc_scores: Vec<(K, f64, u64)> = self.documents.iter().map(|doc| {(
             doc.key.clone(),
-            tf.raw_iter().map(|(idx, val)| {
-                let idf: f64 = self.idf.idf_vec.get(idx).copied().unwrap_or(N::zero()).denormalize(self.idf.denormalize_num);
-                let tf2: f64 = doc.tf_vec.get(idx).copied().unwrap_or(N::zero()).denormalize(doc.denormalize_num);
-                let tf1: f64 = val.denormalize(tf_denormalize_num);
-                // Dot product calculation
-                tf1 * tf2 * (idf * idf)
-            }).sum::<f64>(),
+            {
+                let mut cut_down = 0;
+                tf.raw_iter().map(|(idx, val)| {
+                    let idf: f64 = self.idf.idf_vec.get(idx).copied().unwrap_or(N::zero()).denormalize(self.idf.denormalize_num);
+                    let tf2 = doc.tf_vec.raw_get_with_cut_down(idx, cut_down).map(|v| {
+                        cut_down = v.index + 1; // Update cut_down to skip processed indices
+                        v.value
+                    }).copied().unwrap_or(N::zero()).denormalize(doc.denormalize_num);
+                    let tf1: f64 = val.denormalize(tf_denormalize_num);
+                    // Dot product calculation
+                    tf1 * tf2 * (idf * idf)
+                }).sum::<f64>()
+            },
             doc.token_sum
         )}).collect();
         doc_scores
@@ -222,9 +208,13 @@ where
             doc.key.clone(),
             {
                 let len_p = doc.token_sum as f64 * rev_avg_l;
+                let mut cut_down = 0;
                 tf.raw_iter().map(|(idx, _val)| {
                     let idf: f64 = self.idf.idf_vec.get(idx).copied().unwrap_or(N::zero()).denormalize(self.idf.denormalize_num);
-                    let tf: f64 = doc.tf_vec.get(idx).copied().unwrap_or(N::zero()).denormalize(doc.denormalize_num);
+                    let tf: f64 = doc.tf_vec.raw_get_with_cut_down(idx, cut_down).map(|v| {
+                        cut_down = v.index + 1; // Update cut_down to skip processed indices
+                        v.value
+                    }).copied().unwrap_or(N::zero()).denormalize(doc.denormalize_num);
                     // BM25 scoring formula
                     idf * ((tf * k1_p) / (tf + k1 * (1.0 - b + (b * len_p))))
                 }).sum::<f64>()
@@ -234,41 +224,7 @@ where
         doc_scores
     }
 
-    /// General scoring function with custom scoring closure
-    /// # Arguments
-    /// * `freq` - TokenFrequency for the query
-    /// * `ignore_freq` - TokenFrequency for terms to ignore (e.g., stop words)
-    /// * `f` - Scoring function closure with signature `Fn(tf1, tf2, ignore_tf1, idf, avg_l) -> score`
-    fn scoring_search<F>(&self, freq: &TokenFrequency, ignore_freq: &TokenFrequency, f: F) -> Vec<(K, f64, u64)> 
-    where 
-        F: Fn(f64, f64, f64, f64, f64) -> f64,
-    {
-        let (tf, tf_denormalize_num) = E::tf_vec(&freq, &self.token_dim_sample);
-        let (ignore_tf, ignore_tf_denormalize_num) = E::tf_vec(&ignore_freq, &self.token_dim_sample);
+    // fn search_bm25(&self, positive_freq: &TokenFrequency, negative_freq: &TokenFrequency, k1: f64, b: f64) -> Vec<(K, f64, u64)> {
 
-        let avg_l = self.documents.iter().map(|doc| doc.token_sum as f64).sum::<f64>() / self.documents.len() as f64;
-
-        let doc_scores: Vec<(K, f64, u64)> = self.documents.iter().map(|doc| {(
-            doc.key.clone(),
-            tf.raw_iter().map(|(idx, val)| {
-                let idf: f64 = self.idf.idf_vec.get(idx).copied().unwrap_or(N::zero()).denormalize(self.idf.denormalize_num);
-                let tf2: f64 = doc.tf_vec.get(idx).copied().unwrap_or(N::zero()).denormalize(doc.denormalize_num);
-                let tf1: f64 = val.denormalize(tf_denormalize_num);
-                let ignore_tf1: f64 = ignore_tf.get(idx).copied().unwrap_or(N::zero()).denormalize(ignore_tf_denormalize_num);
-                // Dot product calculation with ignore frequency
-                f(tf1, tf2, ignore_tf1, idf, avg_l)
-            }).sum::<f64>(),
-            doc.token_sum
-        )}).collect();
-        doc_scores
-    }
-
-    fn search_bm25(&self, positive_freq: &TokenFrequency, negative_freq: &TokenFrequency, k1: f64, b: f64) -> Vec<(K, f64, u64)> {
-        self.scoring_search(positive_freq, negative_freq, |tf1, tf2, ignore_tf1, idf, avg_l| {
-            let k1_p = k1 + 1.0;
-            let len_p = 1.0; // Placeholder for document length normalization
-            // BM25 scoring formula with ignore frequency
-            idf * ((tf1 * k1_p) / (tf1 + k1 * (1.0 - b + (b * len_p)))) - ignore_tf1
-        })
-    }
+    // }
 }

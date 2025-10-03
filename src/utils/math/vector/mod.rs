@@ -42,7 +42,9 @@ where N: Num
     fn push(&mut self, elem: N);
     fn pop(&mut self) -> Option<N>;
     fn get(&self, index: usize) -> Option<&N>;
+    fn raw_get(&self, index: usize) -> Option<ValueWithIndex<N>>;
     fn get_with_cut_down(&self, index: usize, cut_down: usize) -> Option<&N>;
+    fn raw_get_with_cut_down(&self, index: usize, cut_down: usize) -> Option<ValueWithIndex<N>>;
     fn get_ind(&self, index: usize) -> Option<usize>;
     fn remove(&mut self, index: usize) -> N;
     fn from_vec(vec: Vec<N>) -> Self;
@@ -50,6 +52,13 @@ where N: Num
     unsafe fn from_sparse_iter(iter: impl Iterator<Item = (usize, N)>, len: usize) -> Self;
     fn iter(&self) -> ZeroSpVecIter<N>;
     fn raw_iter(&self) -> ZeroSpVecRawIter<N>;
+}
+
+pub struct ValueWithIndex<'a, N>
+where N: Num
+{
+    pub index: usize,
+    pub value: &'a N,
 }
 
 impl<N> ZeroSpVecTrait<N> for ZeroSpVec<N> 
@@ -249,6 +258,29 @@ where N: Num
     }
 
     #[inline]
+    fn raw_get(&self, index: usize) -> Option<ValueWithIndex<N>> {
+        if index >= self.len {
+            return None;
+        }
+        match self.ind_binary_search(index, 0) {
+            Ok(idx) => {
+                unsafe {
+                    Some(ValueWithIndex {
+                        index,
+                        value: &*self.val_ptr().add(idx),
+                    })
+                }
+            },
+            Err(_) => {
+                Some(ValueWithIndex {
+                    index,
+                    value: &self.zero,
+                })
+            }
+        }
+    }
+
+    #[inline]
     fn get_with_cut_down(&self, index: usize, cut_down: usize) -> Option<&N> {
         if index >= self.len {
             return None;
@@ -261,6 +293,29 @@ where N: Num
             },
             Err(_) => {
                 Some(&self.zero)
+            }
+        }
+    }
+
+    #[inline]
+    fn raw_get_with_cut_down(&self, index: usize, cut_down: usize) -> Option<ValueWithIndex<N>> {
+        if index >= self.len {
+            return None;
+        }
+        match self.ind_binary_search(index, cut_down) {
+            Ok(idx) => {
+                unsafe {
+                    Some(ValueWithIndex {
+                        index,
+                        value: &*self.val_ptr().add(idx),
+                    })
+                }
+            },
+            Err(_) => {
+                Some(ValueWithIndex {
+                    index,
+                    value: &self.zero,
+                })
             }
         }
     }
