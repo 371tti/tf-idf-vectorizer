@@ -16,8 +16,9 @@ use ahash::RandomState;
 #[derive(Debug, Clone)]
 pub struct TFIDFVectorizer<N = f32, K = String, E = DefaultTFIDFEngine>
 where
-    N: Num + Copy,
+    N: Num + Copy + Into<f64> + Send + Sync,
     E: TFIDFEngine<N>,
+    K: Clone + Send + Sync,
 {
     /// Document's TF Vector
     pub documents: Vec<TFVector<N, K>>,
@@ -87,8 +88,9 @@ where
 
 impl <N, K, E> TFIDFVectorizer<N, K, E>
 where
-    N: Num + Copy,
+    N: Num + Copy + Into<f64> + Send + Sync,
     E: TFIDFEngine<N>,
+    K: Clone + Send + Sync,
 {
     /// Create a new TFIDFVectorizer instance
     pub fn new(corpus_ref: Arc<Corpus>) -> Self {
@@ -128,9 +130,9 @@ where
 
 impl <N, K, E> TFIDFVectorizer<N, K, E>
 where
-    N: Num + Copy + Into<f64>,
+    N: Num + Copy + Into<f64> + Send + Sync,
     E: TFIDFEngine<N>,
-    K: PartialEq
+    K: PartialEq + Clone + Send + Sync
 {
     /// Add a document
     /// The immediately referenced Corpus is also updated

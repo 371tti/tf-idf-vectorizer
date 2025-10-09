@@ -28,8 +28,9 @@ where
 
 impl<N, K, E> TFIDFData<N, K, E>
 where
-    N: Num + Copy,
+    N: Num + Copy + Into<f64> + Send + Sync,
     E: TFIDFEngine<N>,
+    K: Clone + Send + Sync,
 {
     /// Convert `TFIDFData` into `TFIDFVectorizer`.
     /// `corpus_ref` is a reference to the corpus.
@@ -49,8 +50,8 @@ where
 
 impl<N, K, E> Serialize for TFIDFVectorizer<N, K, E>
 where
-    N: Num + Copy + Serialize,
-    K: Serialize,
+    N: Num + Copy + Serialize + Into<f64> + Send + Sync,
+    K: Serialize + Clone + Send + Sync,
     E: TFIDFEngine<N>,
 {
     /// Serialize TFIDFVectorizer.
