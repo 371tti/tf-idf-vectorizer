@@ -1,6 +1,6 @@
 [package]
 name = "tf-idf-vectorizer"
-version = "0.5.4"
+version = "0.5.5"
 edition = "2024"
 description = "A simple search and analyze engine"
 license = "MIT"
@@ -8,10 +8,10 @@ repository = "https://github.com/371tti/tf-idf-vectorizer"
 keywords = ["search", "tf", "idf", "analyze"]
 
 [dependencies]
-serde = { version = "1.0.219", features = ["derive"] }
+serde = { version = "1.0.228", features = ["derive"] }
 num = "0.4.3"
 dashmap = { version = "6.1.0", features = ["serde"] }
 ahash = "0.8.12"
-indexmap = { version = "2.11.1", features = ["serde"] }
+indexmap = { version = "2.11.4", features = ["serde"] }
 
 
