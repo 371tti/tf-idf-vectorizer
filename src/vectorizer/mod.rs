@@ -17,7 +17,7 @@ use ahash::RandomState;
 pub struct TFIDFVectorizer<N = f32, K = String, E = DefaultTFIDFEngine>
 where
     N: Num + Copy + Into<f64> + Send + Sync,
-    E: TFIDFEngine<N>,
+    E: TFIDFEngine<N> + Send + Sync,
     K: Clone + Send + Sync,
 {
     /// Document's TF Vector
@@ -89,7 +89,7 @@ where
 impl <N, K, E> TFIDFVectorizer<N, K, E>
 where
     N: Num + Copy + Into<f64> + Send + Sync,
-    E: TFIDFEngine<N>,
+    E: TFIDFEngine<N> + Send + Sync,
     K: Clone + Send + Sync,
 {
     /// Create a new TFIDFVectorizer instance
@@ -131,7 +131,7 @@ where
 impl <N, K, E> TFIDFVectorizer<N, K, E>
 where
     N: Num + Copy + Into<f64> + Send + Sync,
-    E: TFIDFEngine<N>,
+    E: TFIDFEngine<N> + Send + Sync,
     K: PartialEq + Clone + Send + Sync
 {
     /// Add a document

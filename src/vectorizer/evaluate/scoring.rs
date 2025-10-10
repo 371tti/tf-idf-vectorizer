@@ -74,7 +74,7 @@ impl<N, K, E> TFIDFVectorizer<N, K, E>
 where
     K: Clone + Sync + Send + PartialEq,
     N: Num + Copy + Into<f64> + DeNormalizer + Send + Sync,
-    E: TFIDFEngine<N>,
+    E: TFIDFEngine<N> + Send + Sync,
 {
     /// Calculate similarity scores based on query token frequency
     /// Uses the specified similarity algorithm
@@ -104,7 +104,7 @@ impl<N, K, E> TFIDFVectorizer<N, K, E>
 where
     K: Clone + Send + Sync + PartialEq,
     N: Num + Copy + Into<f64> + DeNormalizer + Send + Sync,
-    E: TFIDFEngine<N>,
+    E: TFIDFEngine<N> + Send + Sync,
 {
     /// Scoring by dot product
     fn scoring_dot(&self, freq: &TokenFrequency) -> Vec<(K, f64, u64)> {
