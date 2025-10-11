@@ -292,7 +292,7 @@ dependencies = [
 
 [[package]]
 name = "tf-idf-vectorizer"
-version = "0.5.6"
+version = "0.5.7"
 dependencies = [
  "ahash",
  "dashmap",

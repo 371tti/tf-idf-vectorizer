@@ -101,12 +101,12 @@ where N: Num
         if self.nnz == 0 {
             return Err(0);
         }
-
         let mut left = cut_down;
         let mut right = self.nnz - 1;
         while left < right {
             let mid = left + (right - left) / 2;
-            let mid_index = unsafe { ptr::read(self.ind_ptr().add(mid)) as usize };
+            // read は mid < nnz を満たすため安全
+            let mid_index = unsafe { *self.ind_ptr().add(mid) as usize };
             if mid_index == index {
                 return Ok(mid);
             } else if mid_index < index {
@@ -117,7 +117,7 @@ where N: Num
         }
 
         // ループ終了後 left == right の位置になっている
-        let final_index = unsafe { ptr::read(self.ind_ptr().add(left)) as usize };
+        let final_index = unsafe { *self.ind_ptr().add(left) as usize };
         if final_index == index {
             Ok(left)
         } else if final_index < index {
@@ -299,7 +299,7 @@ where N: Num
 
     #[inline]
     fn raw_get_with_cut_down(&self, index: usize, cut_down: usize) -> Option<ValueWithIndex<N>> {
-        if index >= self.len {
+        if index >= self.len || cut_down >= self.nnz {
             return None;
         }
         match self.ind_binary_search(index, cut_down) {
