@@ -5,6 +5,7 @@ use num::{pow::Pow, Num};
 use crate::{utils::{math::vector::ZeroSpVecTrait, normalizer::DeNormalizer}, vectorizer::{tfidf::TFIDFEngine, token::TokenFrequency, TFIDFVectorizer}};
 
 /// Enum for similarity algorithms used in search queries
+#[derive(Clone)]
 pub enum SimilarityAlgorithm {
     /// Dot product similarity
     /// Considers both direction and magnitude
@@ -20,6 +21,7 @@ pub enum SimilarityAlgorithm {
 }
 
 /// Structure to store search results
+#[derive(Clone)]
 pub struct Hits<K> 
 {
     /// (Document ID, Score, Document Length)
