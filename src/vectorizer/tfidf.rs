@@ -1,11 +1,12 @@
 use ahash::RandomState;
 use indexmap::IndexSet;
+use num_traits::Num;
 
 use crate::{utils::math::vector::{ZeroSpVec, ZeroSpVecTrait}, vectorizer::{corpus::Corpus, token::TokenFrequency}};
 
 pub trait TFIDFEngine<N>: Send + Sync
 where
-    N: num::Num + Copy,
+    N: Num + Copy,
 {
     /// Method to generate the IDF vector
     /// # Arguments

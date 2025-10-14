@@ -1,4 +1,4 @@
-use num::Num;
+use num_traits::Num;
 use serde::{Serialize, Serializer, Deserialize, Deserializer};
 use serde::ser::SerializeStruct;
 use crate::utils::math::vector::ZeroSpVecTrait;

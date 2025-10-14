@@ -1,6 +1,6 @@
 use std::{cmp::Ordering, fmt::Debug};
 
-use num::{pow::Pow, Num};
+use num_traits::{pow::Pow, Num};
 
 use crate::{utils::{math::vector::ZeroSpVecTrait, normalizer::DeNormalizer}, vectorizer::{tfidf::TFIDFEngine, token::TokenFrequency, TFIDFVectorizer}};
 

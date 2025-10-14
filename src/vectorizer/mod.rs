@@ -7,7 +7,7 @@ pub mod evaluate;
 use std::sync::Arc;
 
 use indexmap::IndexSet;
-use num::Num;
+use num_traits::Num;
 use ::serde::{Deserialize, Serialize};
 
 use crate::{utils::{math::vector::{ZeroSpVec, ZeroSpVecTrait}, normalizer::DeNormalizer}, vectorizer::{corpus::Corpus, tfidf::{DefaultTFIDFEngine, TFIDFEngine}, token::TokenFrequency}};

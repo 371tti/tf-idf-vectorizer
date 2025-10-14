@@ -5,7 +5,7 @@ use std::{alloc::{alloc, dealloc, realloc, Layout}, fmt, marker::PhantomData, me
 use std::ops::Index;
 use std::fmt::Debug;
 
-use num::Num;
+use num_traits::Num;
 /// ZeroSpVecは0要素を疎とした過疎ベクトルを実装です
 /// indices と valuesを持ち
 /// indicesは要素のインデックスを保持し、

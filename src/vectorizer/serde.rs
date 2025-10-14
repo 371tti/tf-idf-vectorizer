@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use ahash::RandomState;
 use indexmap::IndexSet;
-use num::Num;
+use num_traits::Num;
 use serde::{ser::SerializeStruct, Deserialize, Serialize};
 
 use crate::{vectorizer::{tfidf::{DefaultTFIDFEngine, TFIDFEngine}, IDFVector, TFVector}, Corpus, TFIDFVectorizer};
