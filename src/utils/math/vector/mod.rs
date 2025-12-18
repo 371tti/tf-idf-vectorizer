@@ -34,7 +34,7 @@ where N: Num
     fn shrink_to_fit(&mut self);
     fn is_empty(&self) -> bool;
     fn len(&self) -> usize;
-    fn len_mut(&mut self) -> &mut usize;
+    unsafe fn set_len(&mut self, len: usize);
     fn capacity(&self) -> usize;
     fn nnz(&self) -> usize;
     fn add_dim(&mut self, dim: usize);
@@ -42,16 +42,16 @@ where N: Num
     fn push(&mut self, elem: N);
     fn pop(&mut self) -> Option<N>;
     fn get(&self, index: usize) -> Option<&N>;
-    fn raw_get(&self, index: usize) -> Option<ValueWithIndex<N>>;
+    fn raw_get(&self, index: usize) -> Option<ValueWithIndex<'_, N>>;
     fn get_with_cut_down(&self, index: usize, cut_down: usize) -> Option<&N>;
-    fn raw_get_with_cut_down(&self, index: usize, cut_down: usize) -> Option<ValueWithIndex<N>>;
+    fn raw_get_with_cut_down(&self, index: usize, cut_down: usize) -> Option<ValueWithIndex<'_, N>>;
     fn get_ind(&self, index: usize) -> Option<usize>;
     fn remove(&mut self, index: usize) -> N;
     fn from_vec(vec: Vec<N>) -> Self;
     unsafe fn from_raw_iter(iter: impl Iterator<Item = (usize, N)>, len: usize) -> Self;
     unsafe fn from_sparse_iter(iter: impl Iterator<Item = (usize, N)>, len: usize) -> Self;
-    fn iter(&self) -> ZeroSpVecIter<N>;
-    fn raw_iter(&self) -> ZeroSpVecRawIter<N>;
+    fn iter(&self) -> ZeroSpVecIter<'_, N>;
+    fn raw_iter(&self) -> ZeroSpVecRawIter<'_, N>;
 }
 
 pub struct ValueWithIndex<'a, N>
@@ -74,8 +74,8 @@ where N: Num
         self.buf.val_ptr.as_ptr()
     }
 
-    /// raw_pushは、要素を追加するためのメソッドです。
-    /// ただし全体の長さを考慮しませんのであとでlenを更新する必要があります。
+    /// raw_pushは、要素を追加するためのメソッド
+    /// ただしlenを更新しない
     /// 
     /// # Arguments
     /// - `index` - 追加する要素のインデックス
@@ -97,7 +97,7 @@ where N: Num
 
     #[inline]
     fn ind_binary_search(&self, index: usize, cut_down: usize) -> Result<usize, usize> {
-        // 要素が無い場合は「まだどこにも挿入されていない」ので Err(0)
+        // 要素が無い場合 Err(0)
         if self.nnz == 0 {
             return Err(0);
         }
@@ -105,7 +105,7 @@ where N: Num
         let mut right = self.nnz - 1;
         while left < right {
             let mid = left + (right - left) / 2;
-            // read は mid < nnz を満たすため安全
+            // read は mid < nnz を満たすため安全...
             let mid_index = unsafe { *self.ind_ptr().add(mid) as usize };
             if mid_index == index {
                 return Ok(mid);
@@ -116,7 +116,6 @@ where N: Num
             }
         }
 
-        // ループ終了後 left == right の位置になっている
         let final_index = unsafe { *self.ind_ptr().add(left) as usize };
         if final_index == index {
             Ok(left)
@@ -150,6 +149,7 @@ where N: Num
         }
     }
 
+    /// capの拡張
     #[inline]
     fn reserve(&mut self, additional: usize) {
         let new_cap = self.nnz + additional;
@@ -159,6 +159,7 @@ where N: Num
         }
     }
 
+    /// capの最適化 未使用領域を解放
     #[inline]
     fn shrink_to_fit(&mut self) {
         if self.len < self.buf.cap {
@@ -179,25 +180,30 @@ where N: Num
     }
 
     #[inline]
-    fn len_mut(&mut self) -> &mut usize {
-        &mut self.len
+    unsafe fn set_len(&mut self, len: usize) {
+        self.len = len;
     }
 
+    /// capacityを返す
     #[inline]
     fn capacity(&self) -> usize {
         self.buf.cap
     }
 
+    /// nnz(Number of Non-Zero)を返す
     #[inline]
     fn nnz(&self) -> usize {
         self.nnz
     }
 
+    /// ベクトルの次元数を追加します
     #[inline]
     fn add_dim(&mut self, dim: usize) {
         self.len += dim;
     }
 
+    /// 全要素を削除します
+    /// cap は維持されるのでメモリを解放したけりゃ shrink_to_fit を呼んで
     #[inline]
     fn clear(&mut self) {
         while let Some(_) = self.pop() {
@@ -258,7 +264,7 @@ where N: Num
     }
 
     #[inline]
-    fn raw_get(&self, index: usize) -> Option<ValueWithIndex<N>> {
+    fn raw_get(&self, index: usize) -> Option<ValueWithIndex<'_, N>> {
         if index >= self.len {
             return None;
         }
@@ -298,7 +304,7 @@ where N: Num
     }
 
     #[inline]
-    fn raw_get_with_cut_down(&self, index: usize, cut_down: usize) -> Option<ValueWithIndex<N>> {
+    fn raw_get_with_cut_down(&self, index: usize, cut_down: usize) -> Option<ValueWithIndex<'_, N>> {
         if index >= self.len || cut_down >= self.nnz {
             return None;
         }
@@ -373,7 +379,7 @@ where N: Num
                             self.ind_ptr().add(i),
                             count
                         );
-                        // シフトした後のインデックスは全て -1 (1つ前に詰める)
+                        // シフトした後のインデックスは全て -1
                         for offset in i..(self.nnz - 1) {
                             *self.ind_ptr().add(offset) -= 1;
                         }
@@ -387,8 +393,8 @@ where N: Num
             }
             Err(i) => {
                 // index は詰める必要があるので、i 以降の要素のインデックスを -1
-                // （たとえば “要素自体は無い” けど、後ろにある要素は
-                //  論理インデックスが 1 つ前になる）
+                // (たとえば “要素自体は無い” けど、後ろにある要素は
+                //  論理インデックスが 1 つ前になる)
                 if i < self.nnz {
                     unsafe {
                         for offset in i..self.nnz {
@@ -403,6 +409,7 @@ where N: Num
         }
     }
 
+    /// ベクトルをVecから構築します
     #[inline]
     fn from_vec(vec: Vec<N>) -> Self {
         let mut zero_sp_vec = ZeroSpVec::with_capacity(vec.len());
@@ -412,7 +419,8 @@ where N: Num
         zero_sp_vec
     }
 
-    // まじでunsafeにするべき
+    /// (idx, value)のイテレータから構築します
+    /// これはfrom_sparse_iterと異なり、0要素も含めて構築します
     #[inline]
     unsafe fn from_raw_iter(iter: impl Iterator<Item = (usize, N)>, len: usize) -> Self {
         let mut zero_sp_vec = ZeroSpVec::with_capacity(iter.size_hint().0);
@@ -425,9 +433,8 @@ where N: Num
         zero_sp_vec
     }
 
-    /// Build from sparse iterator that yields only non-zero elements (idx, value).
-    /// This avoids allocating a full dense Vec when most entries are zero.
-    /// unsafeにするべき
+    /// (idx, value)のイテレータから構築します
+    /// これは0要素を自動でスキップします
     #[inline]
     unsafe fn from_sparse_iter(iter: impl Iterator<Item = (usize, N)>, len: usize) -> Self {
         let mut zero_sp_vec = ZeroSpVec::new();
@@ -442,16 +449,20 @@ where N: Num
         zero_sp_vec
     }
 
+    /// イテレータを返す
+    /// これはVecと同様に0要素も含めて返す
     #[inline]
-    fn iter(&self) -> ZeroSpVecIter<N> {
+    fn iter(&self) -> ZeroSpVecIter<'_, N> {
         ZeroSpVecIter {
             vec: self,
             pos: 0,
         }
     }
 
+    /// 生イテレータを返す
+    /// これは0要素を含めず、実際に格納されている(idx, value)ペアのみを返す
     #[inline]
-    fn raw_iter(&self) -> ZeroSpVecRawIter<N> {
+    fn raw_iter(&self) -> ZeroSpVecRawIter<'_, N> {
         ZeroSpVecRawIter {
             vec: self,
             pos: 0,
@@ -523,6 +534,7 @@ impl<N: Num + Debug> Debug for ZeroSpVec<N> {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct ZeroSpVecIter<'a, N> 
 where N: Num
 {
@@ -544,6 +556,7 @@ where N: Num
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct ZeroSpVecRawIter<'a, N> 
 where N: Num
 {
@@ -569,9 +582,42 @@ where N: Num
     }
 
     #[inline]
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.vec.nnz().saturating_sub(self.pos), Some(self.vec.len()))
+    fn nth(&mut self, n: usize) -> Option<Self::Item> {
+        let nnz = self.vec.nnz();
+        match self.pos.checked_add(n) {
+            Some(new_pos) if new_pos < nnz => {
+                self.pos = new_pos;
+                self.next()
+            }
+            _ => {
+                self.pos = nnz;
+                None
+            }
+        }
     }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.vec.nnz().saturating_sub(self.pos);
+        (remaining, Some(remaining))
+    }
+
+}
+
+impl<'a, N> ExactSizeIterator for ZeroSpVecRawIter<'a, N>
+where
+    N: Num,
+{
+    #[inline]
+    fn len(&self) -> usize {
+        self.vec.nnz().saturating_sub(self.pos)
+    }
+}
+
+impl<'a, N> std::iter::FusedIterator for ZeroSpVecRawIter<'a, N>
+where
+    N: Num,
+{
 }
 
 impl<T> From<Vec<T>> for ZeroSpVec<T>

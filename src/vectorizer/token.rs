@@ -3,6 +3,8 @@ use std::{collections::{HashMap, HashSet}, fmt::Debug};
 use ahash::RandomState;
 use serde::{Deserialize, Serialize};
 
+use crate::Corpus;
+
 
 /// TokenFrequency struct
 /// Manages the frequency of token occurrences.
@@ -143,6 +145,18 @@ where
     fn from(tokens: &[T]) -> Self {
         let mut tf = TokenFrequency::new();
         tf.add_tokens(tokens);
+        tf
+    }
+}
+
+impl From<Corpus> for TokenFrequency {
+    fn from(corpus: Corpus) -> Self {
+        let mut tf = TokenFrequency::new();
+        for entry in corpus.token_counts.iter() {
+            let token = entry.key();
+            let count = *entry.value();
+            tf.set_token_count(token, count);
+        }
         tf
     }
 }

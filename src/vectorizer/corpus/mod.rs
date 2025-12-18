@@ -3,6 +3,8 @@ use ahash::RandomState;
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 
+use crate::TokenFrequency;
+
 /// keep document count and token counts in a thread-safe way
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Corpus {
@@ -90,5 +92,65 @@ impl Corpus {
     #[inline]
     pub fn vocab_size(&self) -> usize {
         self.token_counts.len()
+    }
+}
+
+/// for analyze usage
+impl Corpus {
+    /// Get all tokens in the corpus
+    pub fn get_all_tokens(&self) -> Vec<String> {
+        self.token_counts
+            .iter()
+            .map(|entry| entry.key().to_string())
+            .collect()
+    }
+
+    /// self - other
+    /// for trend analyze
+    pub fn delta_corpus(&self, other: &Corpus) -> Corpus {
+        let delta = Corpus::new();
+        for entry in self.token_counts.iter() {
+            let token = entry.key();
+            let count_self = *entry.value();
+            let count_other = other.token_counts.get(token).map_or(0, |v| *v);
+            if count_self > count_other {
+                delta
+                    .token_counts
+                    .insert(token.clone(), count_self - count_other);
+            }
+        }
+        delta.add_num
+            .store(self.add_num.load(Ordering::Relaxed), Ordering::Relaxed);
+        delta.sub_num
+            .store(self.sub_num.load(Ordering::Relaxed), Ordering::Relaxed);
+        delta
+    }
+
+    /// Merge another corpus into self
+    pub fn merge_corpus(&self, other: &Corpus) {
+        for entry in other.token_counts.iter() {
+            let token = entry.key();
+            let count_other = *entry.value();
+            self.token_counts
+                .entry(token.clone())
+                .and_modify(|count| *count += count_other)
+                .or_insert(count_other);
+        }
+        self.add_num
+            .fetch_add(other.add_num.load(Ordering::Relaxed), Ordering::Relaxed);
+        self.sub_num
+            .fetch_add(other.sub_num.load(Ordering::Relaxed), Ordering::Relaxed);
+    }
+}
+
+impl Into<TokenFrequency> for &Corpus {
+    fn into(self) -> TokenFrequency {
+        let mut tf = TokenFrequency::new();
+        for entry in self.token_counts.iter() {
+            let token = entry.key();
+            let count = *entry.value();
+            tf.set_token_count(token, count);
+        }
+        tf
     }
 }
