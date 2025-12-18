@@ -1,7 +1,8 @@
 use std::sync::Arc;
+use std::hash::Hash;
 
 use ahash::RandomState;
-use indexmap::IndexSet;
+use indexmap::IndexMap;
 use num_traits::Num;
 use serde::{ser::SerializeStruct, Deserialize, Serialize};
 
@@ -14,12 +15,12 @@ use crate::{vectorizer::{tfidf::{DefaultTFIDFEngine, TFIDFEngine}, IDFVector, TF
 pub struct TFIDFData<N = f32, K = String, E = DefaultTFIDFEngine>
 where
     N: Num + Copy,
-    E: TFIDFEngine<N>,
+    E: TFIDFEngine<N, K>,
 {
     /// TF vectors for documents
     pub documents: Vec<TFVector<N, K>>,
     /// Token dimension sample for TF vectors
-    pub token_dim_sample: IndexSet<Box<str>, RandomState>,
+    pub token_dim_sample: IndexMap<Box<str>, Vec<K>, RandomState>,
     /// IDF vector
     pub idf: IDFVector<N>,
     #[serde(default, skip_serializing, skip_deserializing)]
@@ -29,18 +30,18 @@ where
 impl<N, K, E> TFIDFData<N, K, E>
 where
     N: Num + Copy + Into<f64> + Send + Sync,
-    E: TFIDFEngine<N>,
-    K: Clone + Send + Sync,
+    E: TFIDFEngine<N, K>,
+    K: Clone + Send + Sync + Eq + Hash,
 {
     /// Convert `TFIDFData` into `TFIDFVectorizer`.
     /// `corpus_ref` is a reference to the corpus.
     pub fn into_tf_idf_vectorizer(self, corpus_ref: Arc<Corpus>) -> TFIDFVectorizer<N, K, E>
     {
         let mut instance = TFIDFVectorizer {
-            documents: self.documents,
-            token_dim_sample: self.token_dim_sample.clone(),
+            documents: self.documents.into_iter().map(|doc| (doc.key.clone(), doc)).collect(),
+            token_dim_rev_index: self.token_dim_sample,
             corpus_ref,
-            idf: self.idf,
+            idf_cache: self.idf,
             _marker: std::marker::PhantomData,
         };
         instance.update_idf();
@@ -51,8 +52,8 @@ where
 impl<N, K, E> Serialize for TFIDFVectorizer<N, K, E>
 where
     N: Num + Copy + Serialize + Into<f64> + Send + Sync,
-    K: Serialize + Clone + Send + Sync,
-    E: TFIDFEngine<N>,
+    K: Serialize + Clone + Send + Sync + Eq + Hash,
+    E: TFIDFEngine<N, K>,
 {
     /// Serialize TFIDFVectorizer.
     /// This struct contains references, so they are excluded from serialization.
@@ -63,8 +64,8 @@ where
     {
         let mut state = serializer.serialize_struct("TFIDFVectorizer", 3)?;
         state.serialize_field("documents", &self.documents)?;
-        state.serialize_field("token_dim_sample", &self.token_dim_sample)?;
-        state.serialize_field("idf", &self.idf)?;
+        state.serialize_field("token_dim_sample", &self.token_dim_rev_index)?;
+        state.serialize_field("idf", &self.idf_cache)?;
         state.end()
     }
 }

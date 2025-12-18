@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, fmt::Debug};
+use std::{cmp::Ordering, fmt::Debug, hash::Hash};
 
 use num_traits::{pow::Pow, Num};
 
@@ -74,9 +74,9 @@ where
 
 impl<N, K, E> TFIDFVectorizer<N, K, E>
 where
-    K: Clone + Sync + Send + PartialEq,
+    K: Clone + Sync + Send + PartialEq + Eq + Hash,
     N: Num + Copy + Into<f64> + DeNormalizer + Send + Sync,
-    E: TFIDFEngine<N> + Send + Sync,
+    E: TFIDFEngine<N, K> + Send + Sync,
 {
     /// Calculate similarity scores based on query token frequency
     /// Uses the specified similarity algorithm
@@ -104,20 +104,20 @@ where
 /// High-level search implementations
 impl<N, K, E> TFIDFVectorizer<N, K, E>
 where
-    K: Clone + Send + Sync + PartialEq,
+    K: Clone + Send + Sync + PartialEq + Eq + Hash,
     N: Num + Copy + Into<f64> + DeNormalizer + Send + Sync,
-    E: TFIDFEngine<N> + Send + Sync,
+    E: TFIDFEngine<N, K> + Send + Sync,
 {
     /// Scoring by dot product
     fn scoring_dot(&self, freq: &TokenFrequency) -> Vec<(K, f64, u64)> {
-        let (tf, tf_denormalize_num) = E::tf_vec(&freq, &self.token_dim_sample);
+        let (tf, tf_denormalize_num) = E::tf_vec(&freq, &self.token_dim_rev_index);
 
-        let doc_scores: Vec<(K, f64, u64)> = self.documents.iter().map(|doc| {(
+        let doc_scores: Vec<(K, f64, u64)> = self.documents.iter().map(|(_k, doc)| {(
             doc.key.clone(),
             {
                 let mut cut_down = 0;
                 tf.raw_iter().map(|(idx, val)| {
-                    let idf: f64 = self.idf.idf_vec.get(idx).copied().unwrap_or(N::zero()).denormalize(self.idf.denormalize_num);
+                    let idf: f64 = self.idf_cache.idf_vec.get(idx).copied().unwrap_or(N::zero()).denormalize(self.idf_cache.denormalize_num);
                     let tf2 = doc.tf_vec.raw_get_with_cut_down(idx, cut_down).map(|v| {
                         cut_down = v.index + 1; // Update cut_down to skip processed indices
                         v.value
@@ -135,8 +135,8 @@ where
     /// Scoring by cosine similarity
     /// cosθ = A・B / (|A||B|)
     fn scoring_cosine(&self, freq: &TokenFrequency) -> Vec<(K, f64, u64)> {
-        let (tf_1, tf_denormalize_num) = E::tf_vec(&freq, &self.token_dim_sample);
-        let doc_scores: Vec<(K, f64, u64)> = self.documents.iter().map(|doc| {
+        let (tf_1, tf_denormalize_num) = E::tf_vec(&freq, &self.token_dim_rev_index);
+        let doc_scores: Vec<(K, f64, u64)> = self.documents.iter().map(|(_k, doc)| {
             let tf_1 = tf_1.raw_iter();
             let tf_2 = doc.tf_vec.raw_iter();
             let mut a_it = tf_1.fuse();
@@ -148,12 +148,12 @@ where
             let mut dot = 0_f64;
             // helper closure to fetch idf weight (denormalized). Missing indices get zero.
             let idf_w = |i: usize| -> f64 {
-                self.idf
+                self.idf_cache
                     .idf_vec
                     .get(i)
                     .copied()
                     .unwrap_or(N::zero())
-                    .denormalize(self.idf.denormalize_num)
+                    .denormalize(self.idf_cache.denormalize_num)
             };
             while let (Some((ia, va)), Some((ib, vb))) = (a_next, b_next) {
                 match ia.cmp(&ib) {
@@ -200,19 +200,19 @@ where
 
     /// Scoring by BM25
     fn scoring_bm25(&self, freq: &TokenFrequency, k1: f64, b: f64) -> Vec<(K, f64, u64)> {
-        let (tf, _tf_denormalize_num) = E::tf_vec(&freq, &self.token_dim_sample);
+        let (tf, _tf_denormalize_num) = E::tf_vec(&freq, &self.token_dim_rev_index);
         let k1_p = k1 + 1.0;
         // Average document length
-        let avg_l = self.documents.iter().map(|doc| doc.token_sum as f64).sum::<f64>() / self.documents.len() as f64;
+        let avg_l = self.documents.iter().map(|(_k, doc)| doc.token_sum as f64).sum::<f64>() / self.documents.len() as f64;
         let rev_avg_l = 1.0 / avg_l;
 
-        let doc_scores: Vec<(K, f64, u64)> = self.documents.iter().map(|doc| {(
+        let doc_scores: Vec<(K, f64, u64)> = self.documents.iter().map(|(_k, doc)| {(
             doc.key.clone(),
             {
                 let len_p = doc.token_sum as f64 * rev_avg_l;
                 let mut cut_down = 0;
                 tf.raw_iter().map(|(idx, _val)| {
-                    let idf: f64 = self.idf.idf_vec.get(idx).copied().unwrap_or(N::zero()).denormalize(self.idf.denormalize_num);
+                    let idf: f64 = self.idf_cache.idf_vec.get(idx).copied().unwrap_or(N::zero()).denormalize(self.idf_cache.denormalize_num);
                     let tf: f64 = doc.tf_vec.raw_get_with_cut_down(idx, cut_down).map(|v| {
                         cut_down = v.index + 1; // Update cut_down to skip processed indices
                         v.value
