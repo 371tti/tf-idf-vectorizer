@@ -22,7 +22,7 @@ where
     K: Clone + Send + Sync + Eq + std::hash::Hash,
 {
     /// Document's TF Vector
-    pub documents: IndexMap<K, TFVector<N, K>, RandomState>,
+    pub documents: IndexMap<K, TFVector<N>, RandomState>,
     /// TF Vector's token dimension sample and reverse index
     pub token_dim_rev_index: IndexMap<Box<str>, Vec<K>, RandomState>,
     /// Corpus reference
@@ -32,8 +32,10 @@ where
     _marker: std::marker::PhantomData<E>,
 }
 
+/// 子要素含めて合計64bytesになってる
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct TFVector<N, K>
+#[repr(align(64))]
+pub struct TFVector<N>
 where
     N: Num + Copy,
 {
@@ -45,11 +47,19 @@ where
     /// denormalize number for this document
     /// for reverse calculation to get token counts from tf values
     pub denormalize_num: f64,
-    /// Document ID
-    pub key: K,
 }
 
-impl<N, K> TFVector<N, K>
+// サイズアサーション
+// const evaluation より
+// エラーなってたら64bytes になってないってこと
+#[allow(dead_code)]
+const TF_VECTOR_SIZE: usize = core::mem::size_of::<TFVector<f32>>();
+static_assertions::const_assert!(TF_VECTOR_SIZE == 64);
+#[allow(dead_code)]
+const ZSV_SIZE: usize = core::mem::size_of::<ZeroSpVec<f32>>();
+static_assertions::const_assert!(ZSV_SIZE == 48);
+
+impl<N> TFVector<N>
 where
     N: Num + Copy,
 {
@@ -155,10 +165,9 @@ where
             tf_vec,
             token_sum,
             denormalize_num,
-            key: key,
         };
         doc.shrink_to_fit();
-        self.documents.insert(doc.key.clone(), doc);
+        self.documents.insert(key.clone(), doc);
     }
 
     pub fn del_doc(&mut self, key: &K)
@@ -181,7 +190,7 @@ where
     }
 
     /// Get TFVector by document ID
-    pub fn get_tf(&self, key: &K) -> Option<&TFVector<N, K>>
+    pub fn get_tf(&self, key: &K) -> Option<&TFVector<N>>
     where
         K: Eq + Hash,
     {

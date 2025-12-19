@@ -112,8 +112,8 @@ where
     fn scoring_dot(&self, freq: &TokenFrequency) -> Vec<(K, f64, u64)> {
         let (tf, tf_denormalize_num) = E::tf_vec(&freq, &self.token_dim_rev_index);
 
-        let doc_scores: Vec<(K, f64, u64)> = self.documents.iter().map(|(_k, doc)| {(
-            doc.key.clone(),
+        let doc_scores: Vec<(K, f64, u64)> = self.documents.iter().map(|(key, doc)| {(
+            key.clone(),
             {
                 let mut cut_down = 0;
                 tf.raw_iter().map(|(idx, val)| {
@@ -136,7 +136,7 @@ where
     /// cosθ = A・B / (|A||B|)
     fn scoring_cosine(&self, freq: &TokenFrequency) -> Vec<(K, f64, u64)> {
         let (tf_1, tf_denormalize_num) = E::tf_vec(&freq, &self.token_dim_rev_index);
-        let doc_scores: Vec<(K, f64, u64)> = self.documents.iter().map(|(_k, doc)| {
+        let doc_scores: Vec<(K, f64, u64)> = self.documents.iter().map(|(key, doc)| {
             let tf_1 = tf_1.raw_iter();
             let tf_2 = doc.tf_vec.raw_iter();
             let mut a_it = tf_1.fuse();
@@ -193,7 +193,7 @@ where
             let norm_b = norm_b.sqrt();
             // Zero division safety with f64::EPSILON
             let score = dot / (norm_a * norm_b + f64::EPSILON);
-            (doc.key.clone(), score, doc.token_sum)
+            (key.clone(), score, doc.token_sum)
         }).collect();
         doc_scores
     }
@@ -206,8 +206,8 @@ where
         let avg_l = self.documents.iter().map(|(_k, doc)| doc.token_sum as f64).sum::<f64>() / self.documents.len() as f64;
         let rev_avg_l = 1.0 / avg_l;
 
-        let doc_scores: Vec<(K, f64, u64)> = self.documents.iter().map(|(_k, doc)| {(
-            doc.key.clone(),
+        let doc_scores: Vec<(K, f64, u64)> = self.documents.iter().map(|(key, doc)| {(
+            key.clone(),
             {
                 let len_p = doc.token_sum as f64 * rev_avg_l;
                 let mut cut_down = 0;

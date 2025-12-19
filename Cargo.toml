@@ -14,4 +14,4 @@ dashmap = { version = "6.1.0", features = ["serde"] }
 ahash = "0.8.12"
 indexmap = { version = "2.12.1", features = ["serde"] }
 
-
+static_assertions = "1.1.0"

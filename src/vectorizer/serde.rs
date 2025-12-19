@@ -16,9 +16,10 @@ pub struct TFIDFData<N = f32, K = String, E = DefaultTFIDFEngine>
 where
     N: Num + Copy,
     E: TFIDFEngine<N, K>,
+    K: Clone + Eq + Hash,
 {
     /// TF vectors for documents
-    pub documents: Vec<TFVector<N, K>>,
+    pub documents: IndexMap<K, TFVector<N>, RandomState>,
     /// Token dimension sample for TF vectors
     pub token_dim_sample: IndexMap<Box<str>, Vec<K>, RandomState>,
     /// IDF vector
@@ -38,7 +39,7 @@ where
     pub fn into_tf_idf_vectorizer(self, corpus_ref: Arc<Corpus>) -> TFIDFVectorizer<N, K, E>
     {
         let mut instance = TFIDFVectorizer {
-            documents: self.documents.into_iter().map(|doc| (doc.key.clone(), doc)).collect(),
+            documents: self.documents,
             token_dim_rev_index: self.token_dim_sample,
             corpus_ref,
             idf_cache: self.idf,
