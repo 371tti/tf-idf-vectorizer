@@ -1,2 +1,2 @@
 pub mod normalizer;
-pub mod math;
+pub mod datastruct;

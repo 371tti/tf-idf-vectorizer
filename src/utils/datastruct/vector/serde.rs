@@ -1,7 +1,7 @@
 use num_traits::Num;
 use serde::{Serialize, Serializer, Deserialize, Deserializer};
 use serde::ser::SerializeStruct;
-use crate::utils::math::vector::ZeroSpVecTrait;
+use crate::utils::datastruct::vector::ZeroSpVecTrait;
 
 use super::ZeroSpVec;
 

@@ -11,7 +11,7 @@ use indexmap::IndexMap;
 use num_traits::Num;
 use ::serde::{Deserialize, Serialize};
 
-use crate::{utils::{math::vector::{ZeroSpVec, ZeroSpVecTrait}, normalizer::DeNormalizer}, vectorizer::{corpus::Corpus, tfidf::{DefaultTFIDFEngine, TFIDFEngine}, token::TokenFrequency}};
+use crate::{utils::{datastruct::vector::{ZeroSpVec, ZeroSpVecTrait}, normalizer::DeNormalizer}, vectorizer::{corpus::Corpus, tfidf::{DefaultTFIDFEngine, TFIDFEngine}, token::TokenFrequency}};
 use ahash::RandomState;
 
 #[derive(Debug, Clone)]

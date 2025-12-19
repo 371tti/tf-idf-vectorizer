@@ -2,7 +2,7 @@ use ahash::RandomState;
 use indexmap::IndexMap;
 use num_traits::Num;
 
-use crate::{utils::math::vector::{ZeroSpVec, ZeroSpVecTrait}, vectorizer::{corpus::Corpus, token::TokenFrequency}};
+use crate::{utils::datastruct::vector::{ZeroSpVec, ZeroSpVecTrait}, vectorizer::{corpus::Corpus, token::TokenFrequency}};
 
 pub trait TFIDFEngine<N, K>: Send + Sync
 where

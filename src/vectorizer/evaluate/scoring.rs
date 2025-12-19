@@ -2,7 +2,7 @@ use std::{cmp::Ordering, fmt::Debug, hash::Hash};
 
 use num_traits::{pow::Pow, Num};
 
-use crate::{utils::{math::vector::ZeroSpVecTrait, normalizer::DeNormalizer}, vectorizer::{tfidf::TFIDFEngine, token::TokenFrequency, TFIDFVectorizer}};
+use crate::{utils::{datastruct::vector::ZeroSpVecTrait, normalizer::DeNormalizer}, vectorizer::{tfidf::TFIDFEngine, token::TokenFrequency, TFIDFVectorizer}};
 
 /// Enum for similarity algorithms used in search queries
 #[derive(Clone)]
