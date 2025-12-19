@@ -11,7 +11,7 @@ use indexmap::IndexMap;
 use num_traits::Num;
 use ::serde::{Deserialize, Serialize};
 
-use crate::{utils::{datastruct::vector::{ZeroSpVec, ZeroSpVecTrait}, normalizer::DeNormalizer}, vectorizer::{corpus::Corpus, tfidf::{DefaultTFIDFEngine, TFIDFEngine}, token::TokenFrequency}};
+use crate::{utils::{datastruct::{map::{KeyIndexMap, KeyRc}, vector::{ZeroSpVec, ZeroSpVecTrait}}, normalizer::DeNormalizer}, vectorizer::{corpus::Corpus, tfidf::{DefaultTFIDFEngine, TFIDFEngine}, token::TokenFrequency}};
 use ahash::RandomState;
 
 #[derive(Debug, Clone)]
@@ -22,9 +22,9 @@ where
     K: Clone + Send + Sync + Eq + std::hash::Hash,
 {
     /// Document's TF Vector
-    pub documents: IndexMap<K, TFVector<N>, RandomState>,
+    pub documents: KeyIndexMap<K, TFVector<N>>,
     /// TF Vector's token dimension sample and reverse index
-    pub token_dim_rev_index: IndexMap<Box<str>, Vec<K>, RandomState>,
+    pub token_dim_rev_index: IndexMap<Box<str>, Vec<KeyRc<K>>, RandomState>,
     /// Corpus reference
     pub corpus_ref: Arc<Corpus>,
     /// IDF Vector
@@ -106,7 +106,7 @@ where
     /// Create a new TFIDFVectorizer instance
     pub fn new(corpus_ref: Arc<Corpus>) -> Self {
         let mut instance = Self {
-            documents: IndexMap::with_hasher(RandomState::new()),
+            documents: KeyIndexMap::new(),
             token_dim_rev_index: IndexMap::with_hasher(RandomState::new()),
             corpus_ref,
             idf_cache: IDFVector::new(),
@@ -151,12 +151,14 @@ where
         let token_sum = doc.token_sum();
         // ドキュメントのトークンをコーパスに追加
         self.add_corpus(doc);
+        // key_rcを作成
+        let key_rc = KeyRc::new(key);
         // 新語彙を差分追加 (O(|doc_vocab|))
         for tok in doc.token_set_ref_str() {
             if self.token_dim_rev_index.contains_key(tok) {
-                self.token_dim_rev_index.get_mut(tok).map(|vec| vec.push(key.clone()));
+                self.token_dim_rev_index.get_mut(tok).map(|vec| vec.push(key_rc.clone()));
             } else {
-                self.token_dim_rev_index.insert(tok.into(), vec![key.clone()]);
+                self.token_dim_rev_index.insert(tok.into(), vec![key_rc.clone()]);
             }
         }
 
@@ -167,7 +169,7 @@ where
             denormalize_num,
         };
         doc.shrink_to_fit();
-        self.documents.insert(key.clone(), doc);
+        self.documents.insert_with_key_rc(key_rc, doc);
     }
 
     pub fn del_doc(&mut self, key: &K)
@@ -181,7 +183,10 @@ where
                         // コーパスからドキュメントのトークンを削除
                         self.corpus_ref.sub_set(&[s.as_ref()]);
                         // トークンの逆インデックスからドキュメントを削除
-                        v.retain(|doc_key| doc_key != key);
+                        if let Some(v_idx) = v.iter().position(|k_rc| k_rc.as_ref() == key) {
+                            v.swap_remove(v_idx);
+                        }
+
                     })
                 );
             // ドキュメントを削除
