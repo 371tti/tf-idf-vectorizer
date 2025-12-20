@@ -4,7 +4,6 @@ pub mod token;
 pub mod serde;
 pub mod evaluate;
 
-use std::rc;
 use std::{rc::Rc, sync::Arc};
 use std::hash::Hash;
 
@@ -54,6 +53,7 @@ where
 // サイズアサーション
 // const evaluation より
 // エラーなってたら64bytes になってないってこと
+
 #[allow(dead_code)]
 const TF_VECTOR_SIZE: usize = core::mem::size_of::<TFVector<f32>>();
 static_assertions::const_assert!(TF_VECTOR_SIZE == 64);
@@ -181,16 +181,19 @@ where
         if let Some(doc) = self.documents.get(&rc_key) {
             let tokens = doc.tf_vec.raw_iter()
                 .filter_map(|(idx, _)| {
-                    let doc_keys = self.token_dim_rev_index.get_index_mut(idx);
+                    let doc_keys = self.token_dim_rev_index.get_with_index_mut(idx);
                     if let Some(doc_keys) = doc_keys {
-                        // ドキュメントIDを削除
+                        // 逆Indexから削除
                         let rc_key = KeyRc::new(key.clone());
                         doc_keys.retain(|k| *k == rc_key);
                     }
-                    self.token_dim_rev_index.get_key_index(idx)
-                }).collect::<Vec<_>>();
+                    let token = self.token_dim_rev_index.get_key_with_index(idx).cloned();
+                    token
+                }).collect::<Vec<Box<str>>>();
             // ドキュメントを削除
             self.documents.swap_remove(&rc_key);
+            // コーパスからも削除
+            self.corpus_ref.sub_set(&tokens);
         }
     }
 
@@ -199,7 +202,8 @@ where
     where
         K: Eq + Hash,
     {
-        self.documents.get(key)
+        let rc_key = KeyRc::new(key.clone());
+        self.documents.get(&rc_key)
     }
 
     /// Get TokenFrequency by document ID
@@ -210,7 +214,7 @@ where
         if let Some(tf_vec) = self.get_tf(key) {
             let mut token_freq = TokenFrequency::new();
             tf_vec.tf_vec.raw_iter().for_each(|(idx, val)| {
-                if let Some((token, _)) = self.token_dim_rev_index.get_index(idx) {
+                if let Some(token) = self.token_dim_rev_index.get_key_with_index(idx) {
                     let val_f64: f64 = (*val).into();
                     let token_num: f64 = tf_vec.token_sum.denormalize(tf_vec.denormalize_num) * val_f64;
                     token_freq.set_token_count(token, token_num as u64);
@@ -227,17 +231,18 @@ where
     where
         K: PartialEq,
     {
-        self.documents.contains_key(key)
+        let rc_key = KeyRc::new(key.clone());
+        self.documents.contains_key(&rc_key)
     }
 
     /// Check if the token exists in the token dimension sample
     pub fn contains_token(&self, token: &str) -> bool {
-        self.token_dim_rev_index.contains_key(token)
+        self.token_dim_rev_index.contains_key(&Box::<str>::from(token))
     }
 
     /// Check if all tokens in the given TokenFrequency exist in the token dimension sample
     pub fn contains_tokens_from_freq(&self, freq: &TokenFrequency) -> bool {
-        freq.token_set_ref_str().iter().all(|tok| self.token_dim_rev_index.contains_key(*tok))
+        freq.token_set_ref_str().iter().all(|tok| self.contains_token(tok))
     }
 
     pub fn doc_num(&self) -> usize {

@@ -1,309 +1,16 @@
-use hashbrown::HashMap;
 use hashbrown::HashTable;
-use std::borrow::Borrow;
 use std::fmt::Debug;
-use std::hash::Hash;
 use std::hash::Hasher;
-use std::ops::Deref;
-use std::pin::Pin;
-use std::ptr;
-use std::ptr::NonNull;
-use std::rc::Rc;
-use std::rc::Weak;
 
-// pub mod serde;
-
-// pub struct KeyIndexMap<K, V> {
-//     pub entries: Vec<Entry<KeyRc<K>, V>>,
-//     pub table: HashMap<KeyRc<K>, usize, ahash::RandomState>,
-// }
-
-// #[derive(Debug)]
-// pub struct KeyRc<K> {
-//     pub rc: Rc<K>,
-// }
-
-// impl<K> Clone for KeyRc<K> {
-//     fn clone(&self) -> Self {
-//         KeyRc {
-//             rc: self.rc.clone(),
-//         }
-//     }
-// }
-
-// #[derive(Debug)]
-// pub struct WeakKey<K> {
-//     pub weak: Weak<K>,
-// }
-
-// impl<K> Clone for WeakKey<K> {
-//     fn clone(&self) -> Self {
-//         WeakKey {
-//             weak: self.weak.clone(),
-//         }
-//     }
-// }
-
-// impl<K> KeyRc<K> {
-//     pub fn new(key: K) -> Self {
-//         KeyRc {
-//             rc: Rc::new(key),
-//         }
-//     }
-
-//     pub fn to_weak(&self) -> WeakKey<K> {
-//         WeakKey {
-//             weak: Rc::downgrade(&self.rc),
-//         }
-//     }
-// }
-
-// impl<K> AsRef<K> for KeyRc<K> {
-//     fn as_ref(&self) -> &K {
-//         self.rc.as_ref()
-//     }
-// }
-
-// impl<K> Hash for KeyRc<K> 
-// where K: Hash
-// {
-//     fn hash<H: Hasher>(&self, state: &mut H) {
-//         // ptr先実態のHashを呼び出すのだよ
-//         self.rc.as_ref().hash(state);
-//     }
-// }
-
-// impl<K> Borrow<K> for KeyRc<K> {
-//     fn borrow(&self) -> &K {
-//         self.rc.as_ref()
-//     }
-// }
-
-// impl<K> PartialEq for KeyRc<K> 
-// where K: PartialEq
-// {
-//     fn eq(&self, other: &Self) -> bool {
-//         self.rc.as_ref().eq(other.rc.as_ref())
-//     }
-// }
-// impl<K> Eq for KeyRc<K> 
-// where K: Eq {}
-
-// #[derive(Clone)]
-// pub struct Entry<K, V> {
-//     pub key: K,
-//     pub value: V,
-// }
-
-// pub struct HashKey {
-//     pub raw_hash: u64,
-// }
-
-// impl<K, V> KeyIndexMap<K, V>
-// where
-//     K: Eq + std::hash::Hash + Clone,
-//     V: Clone,
-// {
-//     pub fn new() -> Self {
-//         KeyIndexMap {
-//             entries: Vec::new(),
-//             table: HashMap::with_hasher(ahash::RandomState::new()),
-//         }
-//     }
-
-//     pub fn get(&self, key: &K) -> Option<&V> {
-//         if let Some(&idx) = self.table.get(key) {
-//             unsafe {
-//                 Some(&self.entries.get_unchecked(idx).value)
-//             }
-//         } else {
-//             None
-//         }
-//     }
-
-//     pub fn get_key_value(&self, key: &K) -> Option<(&K, &V)> {
-//         if let Some(&idx) = self.table.get(key) {
-//             unsafe {
-//                 let entry = self.entries.get_unchecked(idx);
-//                 Some((entry.key.rc.as_ref(), &entry.value))
-//             }
-//         } else {
-//             None
-//         }
-//     }
-
-//     pub fn get_with_weak_key(&self, key: &WeakKey<K>) -> Option<&V> {
-//         if let Some(strong_key) = key.weak.upgrade() {
-//             if let Some(&idx) = self.table.get(strong_key.as_ref()) {
-//                 unsafe {
-//                     Some(&self.entries.get_unchecked(idx).value)
-//                 }
-//             } else {
-//                 None
-//             }
-//         } else {
-//             None
-//         }
-//     }
-
-//     pub fn insert(&mut self, key: K, value: V) -> InsertResult<K, V> {
-//         let key_rc = KeyRc::new(key);
-//         self.insert_with_key_rc(key_rc, value)
-//     }
-
-//     pub fn insert_with_key_rc(&mut self, key_rc: KeyRc<K>, value: V) -> InsertResult<K, V> {
-//         if let Some((key, &idx)) = self.table.get_key_value(&key_rc) {
-//             // Key exists, update value
-//             let old_value = Some(self.entries[idx].value.clone());
-//             self.entries[idx].value = value;
-//             InsertResult {
-//                 old_value,
-//                 weak_key: key.to_weak(),
-//             }
-//             // drop key_rc
-//         } else {
-//             // New key, insert entry
-//             let idx = self.entries.len();
-//             self.entries.push(Entry {
-//                 key: key_rc.clone(),
-//                 value,
-//             });
-//             self.table.insert(key_rc.clone(), idx);
-//             InsertResult {
-//                 old_value: None,
-//                 weak_key: key_rc.to_weak(),
-//             }
-//         }
-//     }
-
-//     pub fn len(&self) -> usize {
-//         self.entries.len()
-//     }
-
-//     pub fn contains_key(&self, key: &K) -> bool {
-//         self.table.contains_key(key)
-//     }
-
-//     pub fn swap_remove(&mut self, key: &K) -> Option<V> {
-//         if let Some(&idx) = self.table.get(key) {
-//             let entry = self.entries.swap_remove(idx);
-//             self.table.remove(key);
-//             // swapで移動させられた要素のインデックスを更新
-//             let moved_entry = &self.entries[idx];
-//             self.table.insert(moved_entry.key.clone(), idx);
-//             Some(entry.value)
-//         } else {
-//             None
-//         }
-//     }
-
-//     pub fn iter(&self) -> KeyIndexMapIter<K, V> {
-//         KeyIndexMapIter {
-//             map: self,
-//             index: 0,
-//         }
-//     }
-
-//     pub fn raw_iter(&self) -> RawKeyIndexMapIter<K, V> {
-//         RawKeyIndexMapIter {
-//             map: self,
-//             index: 0,
-//         }
-//     }
-// }
-
-// pub struct KeyIndexMapIter<'a, K, V> {
-//     pub map: &'a KeyIndexMap<K, V>,
-//     pub index: usize,
-// }
-
-// impl<'a, K, V> Iterator for KeyIndexMapIter<'a, K, V> {
-//     type Item = (&'a K, &'a V);
-
-//     fn next(&mut self) -> Option<Self::Item> {
-//         if self.index >= self.map.entries.len() {
-//             None
-//         } else {
-//             let entry = &self.map.entries[self.index];
-//             self.index += 1;
-//             Some((entry.key.rc.as_ref(), &entry.value))
-//         }
-//     }
-
-//     fn size_hint(&self) -> (usize, Option<usize>) {
-//         let len = self.map.entries.len() - self.index;
-//         (len, Some(len))
-//     }
-
-//     fn nth(&mut self, n: usize) -> Option<Self::Item> {
-//         self.index += n;
-//         self.next()
-//     }
-// }
-
-// pub struct RawKeyIndexMapIter<'a, K, V> {
-//     pub map: &'a KeyIndexMap<K, V>,
-//     pub index: usize,
-// }
-
-// impl<'a, K, V> Iterator for RawKeyIndexMapIter<'a, K, V> {
-//     type Item = (&'a KeyRc<K>, &'a V);
-
-//     fn next(&mut self) -> Option<Self::Item> {
-//         if self.index >= self.map.entries.len() {
-//             None
-//         } else {
-//             let entry = &self.map.entries[self.index];
-//             self.index += 1;
-//             Some((&entry.key, &entry.value))
-//         }
-//     }
-
-//     fn size_hint(&self) -> (usize, Option<usize>) {
-//         let len = self.map.entries.len() - self.index;
-//         (len, Some(len))
-//     }
-
-//     fn nth(&mut self, n: usize) -> Option<Self::Item> {
-//         self.index += n;
-//         self.next()
-//     }
-// }
-
-// impl<K, V> Debug for KeyIndexMap<K, V>
-// where
-//     K: Debug,
-//     V: Debug,
-// {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         f.debug_map()
-//             .entries(self.entries.iter().map(|entry| (entry.key.rc.as_ref(), &entry.value)))
-//             .finish()
-//     }
-// }
-
-// impl<K, V> Clone for KeyIndexMap<K, V>
-// where
-//     K: Clone,
-//     V: Clone,
-// {
-//     /// Rcに関してはそのままRcとしてクローンされる
-//     /// 問題あればDeep Cloneを実装すること
-//     fn clone(&self) -> Self {
-//         KeyIndexMap {
-//             entries: self.entries.clone(),
-//             table: self.table.clone(),
-//         }
-//     }
-// }
-
-
+pub mod serde;
 
 /// IndexMap
 /// 連続領域を保証するHashMap
 /// 
 /// # Safety
 /// table, hashes は table_* メソッドが責任をもつこと 更新とか
+/// 
+/// いじんないじんないじんな いじったならあらゆるUnitTest書いて通せ
 #[derive(Clone, Debug)]
 pub struct IndexMap<K, V, S = ahash::RandomState> {
     pub values: Vec<V>,
@@ -325,6 +32,19 @@ where
             hashes: Vec::new(),
             table: HashTable::new(),
             hash_builder,
+        }
+    }
+
+    pub fn with_capacity(capacity: usize) -> Self
+    where
+        S: Default,
+    {
+        IndexMap {
+            values: Vec::with_capacity(capacity),
+            keys: Vec::with_capacity(capacity),
+            hashes: Vec::with_capacity(capacity),
+            table: HashTable::with_capacity(capacity),
+            hash_builder: S::default(),
         }
     }
 
@@ -353,8 +73,11 @@ where
         self.keys.iter()
     }
 
-    pub fn iter_key_value(&self) -> impl Iterator<Item = (&K, &V)> {
-        self.keys.iter().zip(self.values.iter())
+    pub fn iter(&self) -> IndexMapIter<'_, K, V, S> {
+        IndexMapIter {
+            map: self,
+            index: 0,
+        }
     }
 
     pub fn values(&self) -> &Vec<V> {
@@ -413,16 +136,6 @@ where
         ).copied()
     }
 
-    /// contains
-    /// とくに注意なし 不可変参照なので
-    fn table_contains(&self, key: &K) -> bool {
-        let hash = self.hash_key(key);
-        self.table.find(
-            hash, 
-            |&i| self.keys[i] == *key
-        ).is_some()
-    }
-
     /// remove
     /// 完全な整合性が必要
     /// hashesはswap_removeされます
@@ -460,16 +173,33 @@ where
         }
     }
 
-    pub fn get_index(&self, index: usize) -> Option<&V> {
+    pub fn get_with_index(&self, index: usize) -> Option<&V> {
         self.values.get(index)
     }
 
-    pub fn get_index_mut(&mut self, index: usize) -> Option<&mut V> {
+    pub fn get_with_index_mut(&mut self, index: usize) -> Option<&mut V> {
         self.values.get_mut(index)
     }
 
-    pub fn get_key_index(&self, index: usize) -> Option<&K> {
+    pub fn get_key_with_index(&self, index: usize) -> Option<&K> {
         self.keys.get(index)
+    }
+
+    pub fn get_key_value_with_index(&self, index: usize) -> Option<(&K, &V)> {
+        if index < self.len() {
+            unsafe {
+                Some((
+                    self.keys.get_unchecked(index),
+                    self.values.get_unchecked(index),
+                ))
+            }
+        } else {
+            None
+        }
+    }
+
+    pub fn get_index(&self, key: &K) -> Option<usize> {
+        self.table_get(key)
     }
 
     pub fn contains_key(&self, key: &K) -> bool {
@@ -543,6 +273,59 @@ where
             None
         }
     }
+
+    pub fn from_kv_vec(k_vec: Vec<K>, v_vec: Vec<V>) -> Self
+    where
+        S: std::hash::BuildHasher + Default,
+    {
+        let hash_builder = S::default();
+        let mut map = IndexMap::with_hasher(hash_builder);
+        for (k, v) in k_vec.into_iter().zip(v_vec.into_iter()) {
+            let idx = map.values.len();
+            unsafe {
+                map.table_append(&k, &idx);
+            }
+            map.keys.push(k);
+            map.values.push(v);
+        }
+        map
+    }
+}
+
+pub struct IndexMapIter<'a, K, V, S> {
+    pub map: &'a IndexMap<K, V, S>,
+    pub index: usize,
+}
+
+impl <'a, K, V, S> Iterator for IndexMapIter<'a, K, V, S> 
+where 
+    K: Eq + std::hash::Hash + Clone,
+    S: std::hash::BuildHasher,
+{
+    type Item = (&'a K, &'a V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index < self.map.len() {
+            unsafe {
+                let k = self.map.keys.get_unchecked(self.index);
+                let v = self.map.values.get_unchecked(self.index);
+                self.index += 1;
+                Some((k, v))
+            }
+        } else {
+            None
+        }
+    } 
+    
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.map.len() - self.index;
+        (remaining, Some(remaining))
+    }
+
+    fn nth(&mut self, n: usize) -> Option<Self::Item> {
+        self.index += n;
+        self.next()
+    }
 }
 
 pub enum EntryMut<'a, K, V, S> {
@@ -574,159 +357,286 @@ where
     }
 }
 
+#[derive(Debug, PartialEq)]
 pub struct InsertResult<K, V> {
     pub old_value: V,
     pub old_key: K,
 }
 
-// pub struct IndexMapVec<T> {
-//     pub vec: IndexMapRawVec<T>,
-//     pub len: usize,
-// }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
 
-// impl<T> IndexMapVec<T> {
-//     pub fn new() -> Self {
-//         IndexMapVec {
-//             vec: IndexMapRawVec::with_capacity(0),
-//             len: 0,
-//         }
-//     }
+    // まずは比較しやすい型でテスト
+    type M = IndexMap<u64, i64>;
 
-//     pub fn with_capacity(cap: usize) -> Self {
-//         IndexMapVec {
-//             vec: IndexMapRawVec::with_capacity(cap),
-//             len: 0,
-//         }
-//     }
+    fn assert_internal_invariants(map: &M) {
+        // 長さが揃っていること
+        assert_eq!(map.values.len(), map.keys.len(), "values/keys len mismatch");
+        assert_eq!(map.values.len(), map.hashes.len(), "values/hashes len mismatch");
 
-//     /// pushする
-//     /// reallocされた場合、メモリリアドレスが変わるので、その差分をisizeで返す
-//     pub fn push(&mut self, value: T) -> i64 {
-//         let front_ptr = self.vec.val_ptr();
-//         if self.len == self.vec.cap {
-//             self.vec.reallocate(self.vec.cap * 2);
-//         }
-//         unsafe {
-//             *self.vec.val_ptr().add(self.len) = value;
-//         }
-//         self.len += 1;
-//         let new_ptr = self.vec.val_ptr();
-//         (new_ptr as i64) - (front_ptr as i64)
-//     }
+        // table_get が返す idx が範囲内で、keys/values と一致すること
+        for (i, k) in map.keys.iter().enumerate() {
+            let idx = map.table_get(k).expect("table_get must find existing key");
+            assert_eq!(idx, i, "table idx mismatch for key");
+        }
 
-//     pub fn len(&self) -> usize {
-//         self.len
-//     }
+        // 逆方向も確認
+        // 重複キー禁止 + contains/get の整合
+        for i in 0..map.len() {
+            let k = &map.keys[i];
+            assert!(map.contains_key(k), "contains_key false for existing key");
+            let v = map.get(k).expect("get must return for existing key");
+            assert_eq!(*v, map.values[i], "get value mismatch");
+        }
 
-//     pub fn pop(&mut self) -> Option<T> {
-//         if self.len == 0 {
-//             None
-//         } else {
-//             self.len -= 1;
-//             unsafe {
-//                 Some(std::ptr::read(self.vec.val_ptr().add(self.len)))
-//             }
-//         }
-//     }
+        // キー重複が無いこと
+        // O(n^2) だけどユニットテストならOK
+        for i in 0..map.keys.len() {
+            for j in (i + 1)..map.keys.len() {
+                assert!(map.keys[i] != map.keys[j], "duplicate keys detected");
+            }
+        }
+    }
 
-//     pub fn get(&self, index: usize) -> Option<&T> {
-//         if index >= self.len {
-//             None
-//         } else {
-//             unsafe {
-//                 Some(&*self.vec.val_ptr().add(index))
-//             }
-//         }
-//     }
+    fn assert_equals_oracle(map: &M, oracle: &HashMap<u64, i64>) {
+        assert_eq!(map.len(), oracle.len(), "len mismatch");
 
-//     pub unsafe fn get_unchecked(&self, index: usize) -> &T {
-//         unsafe {
-//             &*self.vec.val_ptr().add(index)
-//         }
-//     }
+        // 全キーが一致し、値も一致すること
+        for (k, v) in oracle.iter() {
+            let got = map.get(k).copied();
+            assert_eq!(got, Some(*v), "value mismatch for key={k}");
+        }
 
-//     pub unsafe fn get_unchecked_mut(&mut self, index: usize) -> &mut T {
-//         unsafe {
-//             &mut *self.vec.val_ptr().add(index)
-//         }
-//     }
+        // map 側に余計なキーがないこと（oracle で確認）
+        for (k, v) in map.iter() {
+            assert_eq!(oracle.get(k).copied(), Some(*v), "extra/mismatch entry key={k}");
+        }
+    }
 
-//     pub fn iter(&self) -> std::slice::Iter<'_, T> {
-//         unsafe {
-//             std::slice::from_raw_parts(self.vec.val_ptr(), self.len).iter()
-//         }
-//     }
+    #[test]
+    fn basic_insert_get_overwrite() {
+        let mut m = M::new();
 
-//     pub fn as_slice(&self) -> &[T] {
-//         unsafe {
-//             std::slice::from_raw_parts(self.vec.val_ptr(), self.len)
-//         }
-//     }
-// }
+        assert_eq!(m.insert(&1, 10), None);
+        assert_eq!(m.insert(&2, 20), None);
+        assert_eq!(m.get(&1).copied(), Some(10));
+        assert_eq!(m.get(&2).copied(), Some(20));
 
-// impl<T> Clone for IndexMapVec<T> 
-// where T: Clone
-// {
-//     fn clone(&self) -> Self {
-//         let new_vec = IndexMapRawVec::<T>::with_capacity(self.vec.cap);
-//         for i in 0..self.len {
-//             unsafe {
-//                 let src = self.vec.val_ptr().add(i);
-//                 let dst = new_vec.val_ptr().add(i);
-//                 dst.write((*src).clone());
-//             }
-//         }
-//         IndexMapVec {
-//             vec: new_vec,
-//             len: self.len,
-//         }
-//     }
-// }
+        // overwrite
+        let old = m.insert(&1, 99).unwrap();
+        assert_eq!(old.old_key, 1);
+        assert_eq!(old.old_value, 10);
+        assert_eq!(m.get(&1).copied(), Some(99));
 
-// impl<T> Debug for IndexMapVec<T> 
-// where T: Debug
-// {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         let slice = unsafe {
-//             std::slice::from_raw_parts(self.vec.val_ptr(), self.len)
-//         };
-//         f.debug_list().entries(slice.iter()).finish()
-//     }
-// }
+        assert_internal_invariants(&m);
+    }
 
-// pub struct IndexMapRawVec<T> {
-//     pub ptr: NonNull<T>,
-//     pub cap: usize,
-// }
+    #[test]
+    fn swap_remove_last_and_middle() {
+        let mut m = M::new();
+        for i in 0..10 {
+            m.insert(&i, (i as i64) * 10);
+        }
 
-// impl<T> IndexMapRawVec<T> {
-//     pub fn with_capacity(cap: usize) -> Self {
-//         let layout = std::alloc::Layout::array::<T>(cap).unwrap();
-//         let ptr = unsafe { std::alloc::alloc(layout) } as *mut T;
-//         IndexMapRawVec {
-//             ptr: NonNull::new(ptr).unwrap(),
-//             cap,
-//         }
-//     }
+        // last remove
+        let v = m.swap_remove(&9);
+        assert_eq!(v, Some(90));
+        assert!(m.get(&9).is_none());
 
-//     pub fn reallocate(&mut self, new_cap: usize) {
-//         let old_layout = std::alloc::Layout::array::<T>(self.cap).unwrap();
-//         let new_layout = std::alloc::Layout::array::<T>(new_cap).unwrap();
-//         let new_ptr = unsafe { std::alloc::realloc(self.ptr.as_ptr() as *mut u8, old_layout, new_layout.size()) } as *mut T;
-//         self.ptr = NonNull::new(new_ptr).unwrap();
-//         self.cap = new_cap;
-//     }
+        // middle remove
+        let v = m.swap_remove(&3);
+        assert_eq!(v, Some(30));
+        assert!(m.get(&3).is_none());
 
-//     pub fn val_ptr(&self) -> *mut T {
-//         self.ptr.as_ptr()
-//     }
-// }
+        assert_internal_invariants(&m);
+    }
 
-// impl<T> Drop for IndexMapRawVec<T> {
-//     fn drop(&mut self) {
-//         let layout = std::alloc::Layout::array::<T>(self.cap).unwrap();
-//         unsafe {
-//             std::alloc::dealloc(self.ptr.as_ptr() as *mut u8, layout);
-//         }
-//     }   
-// }
+    #[test]
+    fn entry_or_insert_with_works() {
+        let mut m = M::new();
+
+        let v = m.entry_mut(&7).or_insert_with(|| 123);
+        assert_eq!(*v, 123);
+
+        // 2回目は既存参照が返る
+        let v2 = m.entry_mut(&7).or_insert_with(|| 999);
+        assert_eq!(*v2, 123);
+
+        assert_internal_invariants(&m);
+    }
+
+    #[test]
+    fn compare_with_std_hashmap_small_scripted() {
+        let mut m = M::new();
+        let mut o = HashMap::<u64, i64>::new();
+
+        // 混ぜた操作を固定シナリオで
+        for i in 0..50u64 {
+            m.insert(&i, i as i64);
+            o.insert(i, i as i64);
+        }
+
+        for i in 0..50u64 {
+            if i % 3 == 0 {
+                let a = m.swap_remove(&i);
+                let b = o.remove(&i);
+                assert_eq!(a, b);
+            }
+        }
+
+        for i in 0..50u64 {
+            if i % 5 == 0 {
+                m.insert(&i, (i as i64) * 100);
+                o.insert(i, (i as i64) * 100);
+            }
+        }
+
+        assert_internal_invariants(&m);
+        assert_equals_oracle(&m, &o);
+    }
+
+    #[test]
+    fn randomized_ops_compare_with_oracle() {
+        use rand::{rngs::StdRng, Rng, SeedableRng};
+
+        let mut rng = StdRng::seed_from_u64(0xC0FFEE);
+        let mut m = M::new();
+        let mut o = HashMap::<u64, i64>::new();
+
+        // ある程度衝突や削除を踏む
+        const STEPS: usize = 30_000;
+        const KEY_SPACE: u64 = 2_000;
+
+        for _ in 0..STEPS {
+            let op = rng.gen_range(0..100);
+            let k = rng.gen_range(0..KEY_SPACE);
+            match op {
+                // insert (多め)
+                0..=59 => {
+                    let v = rng.gen_range(-1_000_000..=1_000_000);
+                    let a = m.insert(&k, v);
+                    let b = o.insert(k, v);
+
+                    match (a, b) {
+                        (None, None) => {}
+                        (Some(ir), Some(old)) => {
+                            assert_eq!(ir.old_key, k);
+                            assert_eq!(ir.old_value, old);
+                        }
+                        _ => panic!("insert mismatch"),
+                    }
+                }
+                // swap_remove
+                60..=79 => {
+                    let a = m.swap_remove(&k);
+                    let b = o.remove(&k);
+                    assert_eq!(a, b);
+                }
+                // get
+                80..=94 => {
+                    let a = m.get(&k).copied();
+                    let b = o.get(&k).copied();
+                    assert_eq!(a, b);
+                }
+                // contains
+                _ => {
+                    let a = m.contains_key(&k);
+                    let b = o.contains_key(&k);
+                    assert_eq!(a, b);
+                }
+            }
+
+            // たまに内部整合をチェック（重いので間引く）
+            if rng.gen_ratio(1, 200) {
+                assert_internal_invariants(&m);
+                assert_equals_oracle(&m, &o);
+            }
+        }
+
+        // 最後に必ず一致
+        assert_internal_invariants(&m);
+        assert_equals_oracle(&m, &o);
+    }
+
+    #[test]
+    fn empty_map_basics() {
+        let m = M::new();
+
+        assert_eq!(m.len(), 0);
+        assert!(m.get(&123).is_none());
+        assert!(!m.contains_key(&123));
+        // 空でも長さ整合は成立
+        assert_eq!(m.values.len(), 0);
+        assert_eq!(m.keys.len(), 0);
+        assert_eq!(m.hashes.len(), 0);
+    }
+
+    #[test]
+    fn swap_remove_single_element_roundtrip() {
+        let mut m = M::new();
+        m.insert(&42, -7);
+        assert_internal_invariants(&m);
+
+        let v = m.swap_remove(&42);
+        assert_eq!(v, Some(-7));
+        assert_eq!(m.len(), 0);
+        assert!(m.get(&42).is_none());
+        assert!(!m.contains_key(&42));
+
+        assert_internal_invariants(&m);
+    }
+
+    #[test]
+    fn remove_then_reinsert_same_key() {
+        let mut m = M::new();
+
+        m.insert(&1, 10);
+        m.insert(&2, 20);
+        m.insert(&3, 30);
+        assert_internal_invariants(&m);
+
+        assert_eq!(m.swap_remove(&2), Some(20));
+        assert!(m.get(&2).is_none());
+        assert_internal_invariants(&m);
+
+        // 同じキーを再挿入しても table が壊れないこと
+        assert_eq!(m.insert(&2, 200), None);
+        assert_eq!(m.get(&2).copied(), Some(200));
+        assert_internal_invariants(&m);
+    }
+
+    #[test]
+    fn from_kv_vec_builds_valid_map() {
+        let keys = vec![1u64, 2u64, 3u64, 10u64];
+        let values = vec![10i64, 20i64, 30i64, 100i64];
+
+        let m = M::from_kv_vec(keys.clone(), values.clone());
+        assert_eq!(m.len(), 4);
+
+        // 順序と内容が一致
+        assert_eq!(m.keys, keys);
+        assert_eq!(m.values, values);
+
+        assert_internal_invariants(&m);
+    }
+
+    #[test]
+    fn iter_order_matches_internal_storage_even_after_removes() {
+        let mut m = M::new();
+        for i in 0..8u64 {
+            m.insert(&i, (i as i64) + 100);
+        }
+        assert_internal_invariants(&m);
+
+        // いくつか消して、内部順序が変わっても iter が keys/values と整合すること
+        assert_eq!(m.swap_remove(&0), Some(100));
+        assert_eq!(m.swap_remove(&5), Some(105));
+        assert_internal_invariants(&m);
+
+        let collected: Vec<(u64, i64)> = m.iter().map(|(k, v)| (*k, *v)).collect();
+        let expected: Vec<(u64, i64)> = m.keys.iter().copied().zip(m.values.iter().copied()).collect();
+        assert_eq!(collected, expected);
+    }
+}

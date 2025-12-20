@@ -4,80 +4,217 @@ use std::{
     marker::PhantomData,
 };
 
-use hashbrown::HashMap;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, ser::SerializeStruct};
 
-use super::{Entry, KeyIndexMap, KeyRc};
+use crate::utils::datastruct::map::IndexMap;
 
-impl<K, V> Serialize for KeyIndexMap<K, V>
+impl<K, V> Serialize for IndexMap<K, V>
 where
-    K: Serialize + Hash + Eq,
+    K: Serialize,
     V: Serialize,
 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        use serde::ser::SerializeMap;
-
-        let mut map = serializer.serialize_map(Some(self.entries.len()))?;
-        for entry in &self.entries {
-            map.serialize_entry(entry.key.rc.as_ref(), &entry.value)?;
-        }
-        map.end()
+        let mut state = serializer.serialize_struct("IndexMap", 2)?;
+        state.serialize_field("values", &self.values)?;
+        state.serialize_field("keys", &self.keys)?;
+        state.end()
     }
 }
 
-impl<'de, K, V> Deserialize<'de> for KeyIndexMap<K, V>
+impl<'de, K, V> Deserialize<'de> for IndexMap<K, V>
 where
-    K: Deserialize<'de> + Hash + Eq,
+    K: Deserialize<'de> + Hash + Eq + Clone,
     V: Deserialize<'de>,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
-        struct KeyIndexMapVisitor<K, V>(PhantomData<(K, V)>);
+        #[derive(Debug)]
+        enum Field {
+            Values,
+            Keys,
+        }
 
-        impl<'de, K, V> serde::de::Visitor<'de> for KeyIndexMapVisitor<K, V>
+        impl<'de> Deserialize<'de> for Field {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: Deserializer<'de>,
+            {
+                struct FieldVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for FieldVisitor {
+                    type Value = Field;
+
+                    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                        formatter.write_str("`values` or `keys`")
+                    }
+
+                    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match v {
+                            "values" => Ok(Field::Values),
+                            "keys" => Ok(Field::Keys),
+                            _ => Err(E::unknown_field(v, FIELDS)),
+                        }
+                    }
+
+                    fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match v {
+                            b"values" => Ok(Field::Values),
+                            b"keys" => Ok(Field::Keys),
+                            _ => {
+                                let s = std::str::from_utf8(v).unwrap_or("");
+                                Err(E::unknown_field(s, FIELDS))
+                            }
+                        }
+                    }
+                }
+
+                deserializer.deserialize_identifier(FieldVisitor)
+            }
+        }
+
+        struct IndexMapVisitor<K, V>(PhantomData<(K, V)>);
+
+        const FIELDS: &[&str] = &["values", "keys"];
+
+        impl<'de, K, V> serde::de::Visitor<'de> for IndexMapVisitor<K, V>
         where
-            K: Deserialize<'de> + Hash + Eq,
+            K: Deserialize<'de> + Hash + Eq + Clone,
             V: Deserialize<'de>,
         {
-            type Value = KeyIndexMap<K, V>;
+            type Value = IndexMap<K, V>;
 
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("a map of {key: value} for KeyIndexMap")
+                formatter.write_str("an IndexMap serialized as { values: Vec<V>, keys: Vec<K> }")
             }
 
             fn visit_map<M>(self, mut access: M) -> Result<Self::Value, M::Error>
             where
                 M: serde::de::MapAccess<'de>,
             {
-                let capacity = access.size_hint().unwrap_or(0);
-                let mut entries: Vec<Entry<KeyRc<K>, V>> = Vec::with_capacity(capacity);
-                let mut table: HashMap<KeyRc<K>, usize, ahash::RandomState> =
-                    HashMap::with_capacity_and_hasher(capacity, ahash::RandomState::new());
+                use serde::de::Error as DeError;
 
-                while let Some((key, value)) = access.next_entry::<K, V>()? {
-                    if let Some((_existing_key, &idx)) = table.get_key_value(&key) {
-                        entries[idx].value = value;
-                        continue;
+                let mut values: Option<Vec<V>> = None;
+                let mut keys: Option<Vec<K>> = None;
+
+                while let Some(field) = access.next_key::<Field>()? {
+                    match field {
+                        Field::Values => {
+                            if values.is_some() {
+                                return Err(DeError::duplicate_field("values"));
+                            }
+                            values = Some(access.next_value()?);
+                        }
+                        Field::Keys => {
+                            if keys.is_some() {
+                                return Err(DeError::duplicate_field("keys"));
+                            }
+                            keys = Some(access.next_value()?);
+                        }
                     }
-
-                    let idx = entries.len();
-                    let key_rc = KeyRc::new(key);
-                    entries.push(Entry {
-                        key: key_rc.clone(),
-                        value,
-                    });
-                    table.insert(key_rc, idx);
                 }
 
-                Ok(KeyIndexMap { entries, table })
+                let values = values.ok_or_else(|| DeError::missing_field("values"))?;
+                let keys = keys.ok_or_else(|| DeError::missing_field("keys"))?;
+
+                if keys.len() != values.len() {
+                    return Err(DeError::custom("IndexMap deserialize error: keys and values length mismatch"));
+                }
+
+                Ok(IndexMap::from_kv_vec(keys, values))
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::SeqAccess<'de>,
+            {
+                use serde::de::Error as DeError;
+
+                let values: Vec<V> = seq
+                    .next_element()?
+                    .ok_or_else(|| DeError::invalid_length(0, &self))?;
+                let keys: Vec<K> = seq
+                    .next_element()?
+                    .ok_or_else(|| DeError::invalid_length(1, &self))?;
+
+                if keys.len() != values.len() {
+                    return Err(DeError::custom("IndexMap deserialize error: keys and values length mismatch"));
+                }
+
+                Ok(IndexMap::from_kv_vec(keys, values))
             }
         }
 
-        deserializer.deserialize_map(KeyIndexMapVisitor(PhantomData))
+        deserializer.deserialize_struct("IndexMap", FIELDS, IndexMapVisitor(PhantomData))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn serde_roundtrip_json_map_format_preserves_order_and_lookup() {
+        let mut m = IndexMap::<String, i64>::new();
+        m.insert(&"a".to_string(), 10);
+        m.insert(&"b".to_string(), 20);
+        m.insert(&"c".to_string(), 30);
+
+        let s = serde_json::to_string(&m).unwrap();
+        let de: IndexMap<String, i64> = serde_json::from_str(&s).unwrap();
+
+        assert_eq!(de.keys, m.keys);
+        assert_eq!(de.values, m.values);
+        assert_eq!(de.len(), 3);
+        assert_eq!(de.hashes.len(), de.len());
+
+        for (k, v) in m.iter() {
+            assert_eq!(de.get(k).copied(), Some(*v));
+        }
+    }
+
+    #[test]
+    fn serde_roundtrip_bincode_seq_format_works() {
+        let mut m = IndexMap::<u64, i64>::new();
+        for i in 0..100u64 {
+            m.insert(&i, (i as i64) * -7);
+        }
+
+        let bytes = bincode::serialize(&m).unwrap();
+        let de: IndexMap<u64, i64> = bincode::deserialize(&bytes).unwrap();
+
+        assert_eq!(de.keys, m.keys);
+        assert_eq!(de.values, m.values);
+        assert_eq!(de.hashes.len(), de.len());
+
+        for (k, v) in m.iter() {
+            assert_eq!(de.get(k).copied(), Some(*v));
+        }
+    }
+
+    #[test]
+    fn serde_rejects_len_mismatch_json() {
+        // values.len != keys.len
+        let bad = r#"{\"values\":[1,2,3],\"keys\":[\"a\",\"b\"]}"#;
+        let res = serde_json::from_str::<IndexMap<String, i32>>(bad);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn serde_rejects_duplicate_fields_json() {
+        // JSON的には非推奨だが、パーサが許すケースがあるので、ここで弾けると安心
+        let dup = r#"{\"values\":[1],\"values\":[2],\"keys\":[\"a\"]}"#;
+        let res = serde_json::from_str::<IndexMap<String, i32>>(dup);
+        assert!(res.is_err());
     }
 }

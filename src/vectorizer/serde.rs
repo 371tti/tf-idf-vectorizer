@@ -2,11 +2,10 @@ use std::sync::Arc;
 use std::hash::Hash;
 
 use ahash::RandomState;
-use indexmap::IndexMap;
 use num_traits::Num;
 use serde::{ser::SerializeStruct, Deserialize, Serialize};
 
-use crate::{Corpus, TFIDFVectorizer, utils::datastruct::{map::{KeyIndexMap, KeyRc}, vector::ZeroSpVecTrait}, vectorizer::{IDFVector, TFVector, tfidf::{DefaultTFIDFEngine, TFIDFEngine}}};
+use crate::{Corpus, TFIDFVectorizer, utils::datastruct::{map::IndexMap, vector::ZeroSpVecTrait}, vectorizer::{IDFVector, KeyRc, TFVector, tfidf::{DefaultTFIDFEngine, TFIDFEngine}}};
 
 /// Data structure for deserializing TFIDFVectorizer.
 /// This struct does not contain references, so it can be serialized.
@@ -19,7 +18,7 @@ where
     K: Clone + Eq + Hash,
 {
     /// TF vectors for documents
-    pub documents: KeyIndexMap<K, TFVector<N>>,
+    pub documents: IndexMap<KeyRc<K>, TFVector<N>>,
     /// Token dimension sample for TF vectors
     pub token_dim_sample: Vec<Box<str>>,
     /// IDF vector
@@ -38,11 +37,11 @@ where
     /// `corpus_ref` is a reference to the corpus.
     pub fn into_tf_idf_vectorizer(self, corpus_ref: Arc<Corpus>) -> TFIDFVectorizer<N, K, E>
     {
-        let raw_iter = self.documents.raw_iter();
+        let raw_iter = self.documents.iter();
         let mut token_dim_rev_index: IndexMap<Box<str>, Vec<KeyRc<K>>, RandomState> =
-            IndexMap::with_capacity_and_hasher(self.token_dim_sample.len(), RandomState::new());
+            IndexMap::with_capacity(self.token_dim_sample.len());
         self.token_dim_sample.iter().for_each(|token| {
-            token_dim_rev_index.insert(token.clone(), Vec::new());
+            token_dim_rev_index.insert(&token.clone(), Vec::new());
         });
         for (key, doc) in raw_iter {
             doc.tf_vec.raw_iter().for_each(|(idx, _)| {
@@ -80,7 +79,7 @@ where
     {
         let mut state = serializer.serialize_struct("TFIDFVectorizer", 3)?;
         state.serialize_field("documents", &self.documents)?;
-        state.serialize_field("token_dim_sample", &self.token_dim_rev_index.keys().collect::<Vec<_>>())?;
+        state.serialize_field("token_dim_sample", &self.token_dim_rev_index.keys())?;
         state.serialize_field("idf", &self.idf_cache)?;
         state.end()
     }
