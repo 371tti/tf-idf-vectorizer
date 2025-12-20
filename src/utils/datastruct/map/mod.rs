@@ -299,6 +299,11 @@ use std::rc::Weak;
 
 
 
+/// IndexMap
+/// 連続領域を保証するHashMap
+/// 
+/// # Safety
+/// table, hashes は table_* メソッドが責任をもつこと 更新とか
 #[derive(Clone, Debug)]
 pub struct IndexMap<K, V, S = ahash::RandomState> {
     pub values: Vec<V>,
@@ -352,36 +357,54 @@ where
         self.keys.iter().zip(self.values.iter())
     }
 
-    pub fn values(&self) -> &[V] {
-        &self.values.as_slice()
+    pub fn values(&self) -> &Vec<V> {
+        &self.values
     }
 
-    pub fn keys(&self) -> &[K] {
-        &self.keys.as_slice()
+    pub fn keys(&self) -> &Vec<K> {
+        &self.keys
     }
 
+    /// hash util
     fn hash_key(&self, key: &K) -> u64 {
         let mut hasher = self.hash_builder.build_hasher();
         key.hash(&mut hasher);
         hasher.finish()
     }
 
-    fn table_insert(&mut self, key: &K, idx: &usize) {
+    /// override
+    /// 完全な整合性が必要
+    /// keyに対するidxを更新し、更新したidxを返す
+    /// 存在しない場合はNone
+    unsafe fn table_override(&mut self, key: &K, idx: &usize) -> Option<usize> {
         let hash = self.hash_key(key);
         match self.table.find_entry(hash, |&i| self.keys[i] == *key) {
             Ok(mut occ) => {
+                // idxの上書きだけ
                 *occ.get_mut() = *idx;
+                Some(*idx)
             }
-            Err(_entry) => {
-                self.table.insert_unique(
-                    hash,
-                    *idx,
-                    |&i| self.hashes[i]
-                );
+            Err(_) => {
+                None
             }
         }
     }
 
+    /// append
+    /// 完全な整合性が必要
+    /// hashesとtableを更新する
+    unsafe fn table_append(&mut self, key: &K, idx: &usize) {
+        let hash = self.hash_key(key);
+        self.hashes.push(hash);
+        self.table.insert_unique(
+            hash,
+            *idx,
+            |&i| self.hashes[i]
+        );
+    }
+
+    /// get
+    /// とくに注意なし 不可変参照なので
     fn table_get(&self, key: &K) -> Option<usize> {
         let hash = self.hash_key(key);
         self.table.find(
@@ -390,13 +413,27 @@ where
         ).copied()
     }
 
-    fn table_remove(&mut self, key: &K) -> Option<usize> {
+    /// contains
+    /// とくに注意なし 不可変参照なので
+    fn table_contains(&self, key: &K) -> bool {
+        let hash = self.hash_key(key);
+        self.table.find(
+            hash, 
+            |&i| self.keys[i] == *key
+        ).is_some()
+    }
+
+    /// remove
+    /// 完全な整合性が必要
+    /// hashesはswap_removeされます
+    unsafe fn table_swap_remove(&mut self, key: &K) -> Option<usize> {
         let hash = self.hash_key(key);
         if let Ok(entry) = self.table.find_entry(
             hash,
             |&i| self.keys[i] == *key
         ) {
             let (odl_idx, _) = entry.remove();
+            self.hashes.swap_remove(odl_idx);
             Some(odl_idx)
         } else {
             None
@@ -423,17 +460,30 @@ where
         }
     }
 
+    pub fn get_index(&self, index: usize) -> Option<&V> {
+        self.values.get(index)
+    }
+
+    pub fn get_index_mut(&mut self, index: usize) -> Option<&mut V> {
+        self.values.get_mut(index)
+    }
+
+    pub fn get_key_index(&self, index: usize) -> Option<&K> {
+        self.keys.get(index)
+    }
+
     pub fn contains_key(&self, key: &K) -> bool {
         self.table_get(key).is_some()
     }
 
-    pub fn insert(&mut self, key: K, value: V) -> Option<InsertResult<K, V>> {
-        if let Some(idx) = self.table_get(&key) {
+    pub fn insert(&mut self, key: &K, value: V) -> Option<InsertResult<K, V>> {
+        if let Some(idx) = self.table_get(key) {
             // K が Rc の場合を考慮して すべて差し替える
+            unsafe {
+                self.table_override(key, &idx);
+            }
             let old_value = Some(std::mem::replace(&mut self.values[idx], value));
-            let old_key = Some(std::mem::replace(&mut self.keys[idx], key));
-            self.table_remove(&key);
-            self.table_insert(&key, &idx);
+            let old_key = Some(std::mem::replace(&mut self.keys[idx], key.clone()));
             Some(InsertResult {
                 old_value: old_value.unwrap(),
                 old_key:  old_key.unwrap(),
@@ -441,38 +491,85 @@ where
         } else {
             // New key, insert entry
             let idx = self.values.len();
-            self.keys.push(key);
+            unsafe {
+                self.table_append(key, &idx);
+            }
+            self.keys.push(key.clone());
             self.values.push(value);
-            self.table_insert(self.keys.last().unwrap(), &idx);
             None
         }
     }
 
+    pub fn entry_mut<'a>(&'a mut self, key: &'a K) -> EntryMut<'a, K, V, S> {
+        if let Some(idx) = self.table_get(key) {
+            unsafe {
+                EntryMut::Occupied {
+                    key: self.keys.get_unchecked(idx),
+                    value: self.values.get_unchecked_mut(idx),
+                    index: idx,
+                }
+            }
+        } else {
+            EntryMut::Vacant { key , map: self }
+        }
+    }
+
     pub fn swap_remove(&mut self, key: &K) -> Option<V> {
-        let key_ptr = KeyPtr::new(key);
-        let last_idx = self.values.len() - 1;
-        if let Some(&idx) = self.table.get(&key_ptr) {
+        if let Some(idx) = self.table_get(key) {
+            let last_idx = self.values.len() - 1;
             if idx == last_idx {
                 // 最後の要素を削除する場合
-                self.table.remove(&key_ptr);
+                unsafe {
+                    self.table_swap_remove(key);
+                }
                 self.keys.pop();
                 return Some(self.values.pop().unwrap());
             } else {
-                // ptrで参照してるkeyが消える前にtableから消す
-                self.table.remove(&key_ptr);
-                // swap予定の要素のtableをkeyが無効になる前に消しとく
-                self.table.remove(&KeyPtr::new(&self.keys.get_unchecked(idx)));
-                // swap_remove
+                let last_idx_key = self.keys[last_idx].clone();
+                unsafe {
+                    // keyとの整合性があるうちに削除予定のをtableから消す ここでhashesがswap_removeされる
+                    // last_idxの要素がswapで移動してくる
+                    self.table_swap_remove(key);
+                    // 移動させられた要素のtableを再登録
+                    // 登録されていた前のidxに対するkeyはまだ整合性が取れているので問題ない
+                    self.table_override(&last_idx_key, &idx);
+                }
+                // swap_remove ここで実際にtableのidxとvalues, keys, hashesの整合性が回復
                 let value = self.values.swap_remove(idx);
                 self.keys.swap_remove(idx);
-                // 移動させられた要素のkeyを取得
-                let moved_key = &self.keys[idx];
-                // swapで移動させられた要素のtableを再登録
-                self.table.insert(KeyPtr::new(moved_key), idx);
                 Some(value)
             }
         } else {
             None
+        }
+    }
+}
+
+pub enum EntryMut<'a, K, V, S> {
+    Occupied { key: &'a K, value: &'a mut V, index: usize },
+    Vacant { key: &'a K , map: &'a mut IndexMap<K, V, S> },
+}
+
+impl<'a, K, V, S> EntryMut<'a, K, V, S>
+where 
+    K: Eq + std::hash::Hash + Clone,
+    S: std::hash::BuildHasher,
+{
+    pub fn is_occupied(&self) -> bool {
+        matches!(self, EntryMut::Occupied { .. })
+    }
+
+    pub fn or_insert_with<F>(self, value: F) -> &'a mut V
+    where
+        F: FnOnce() -> V,
+        K: Clone,
+    {
+        match self {
+            EntryMut::Occupied { value: v, .. } => v,
+            EntryMut::Vacant { key, map } => {
+                map.insert(key, value());
+                map.get_mut(key).unwrap()
+            }
         }
     }
 }

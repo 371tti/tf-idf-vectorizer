@@ -4,6 +4,7 @@ pub mod token;
 pub mod serde;
 pub mod evaluate;
 
+use std::rc;
 use std::{rc::Rc, sync::Arc};
 use std::hash::Hash;
 
@@ -11,9 +12,7 @@ use num_traits::Num;
 use ::serde::{Deserialize, Serialize};
 
 use crate::utils::datastruct::map::IndexMap;
-use crate::{utils::{datastruct::{map::{KeyIndexMap}, vector::{ZeroSpVec, ZeroSpVecTrait}}, normalizer::DeNormalizer}, vectorizer::{corpus::Corpus, tfidf::{DefaultTFIDFEngine, TFIDFEngine}, token::TokenFrequency}};
-use ahash::RandomState;
-use indexmap::IndexMap
+use crate::{utils::{datastruct::{vector::{ZeroSpVec, ZeroSpVecTrait}}, normalizer::DeNormalizer}, vectorizer::{corpus::Corpus, tfidf::{DefaultTFIDFEngine, TFIDFEngine}, token::TokenFrequency}};
 
 pub type KeyRc<K> = Rc<K>;
 
@@ -158,11 +157,10 @@ where
         let key_rc = KeyRc::new(key);
         // 新語彙を差分追加 (O(|doc_vocab|))
         for tok in doc.token_set_ref_str() {
-            if self.token_dim_rev_index.contains_key(tok) {
-                self.token_dim_rev_index.get_mut(tok).map(|vec| vec.push(key_rc.clone()));
-            } else {
-                self.token_dim_rev_index.insert(tok.into(), vec![key_rc.clone()]);
-            }
+            self.token_dim_rev_index
+                .entry_mut(&Box::from(tok))
+                .or_insert_with(Vec::new)
+                .push(Rc::clone(&key_rc));
         }
 
         let (tf_vec, denormalize_num) = E::tf_vec(doc, self.token_dim_rev_index.keys());
@@ -172,28 +170,27 @@ where
             denormalize_num,
         };
         doc.shrink_to_fit();
-        self.documents.insert(key_rc, doc);
+        self.documents.insert(&key_rc, doc);
     }
 
     pub fn del_doc(&mut self, key: &K)
     where
         K: PartialEq,
     {
-        if let Some(doc) = self.documents.get(key) {
-            doc.tf_vec.raw_iter()
-                .for_each(|(idx, _)| 
-                    self.token_dim_rev_index.get_index_mut(idx).iter_mut().for_each(|(s, v)| {
-                        // コーパスからドキュメントのトークンを削除
-                        self.corpus_ref.sub_set(&[s.as_ref()]);
-                        // トークンの逆インデックスからドキュメントを削除
-                        if let Some(v_idx) = v.iter().position(|k_rc| k_rc.as_ref() == key) {
-                            v.swap_remove(v_idx);
-                        }
-
-                    })
-                );
+        let rc_key = KeyRc::new(key.clone());
+        if let Some(doc) = self.documents.get(&rc_key) {
+            let tokens = doc.tf_vec.raw_iter()
+                .filter_map(|(idx, _)| {
+                    let doc_keys = self.token_dim_rev_index.get_index_mut(idx);
+                    if let Some(doc_keys) = doc_keys {
+                        // ドキュメントIDを削除
+                        let rc_key = KeyRc::new(key.clone());
+                        doc_keys.retain(|k| *k == rc_key);
+                    }
+                    self.token_dim_rev_index.get_key_index(idx)
+                }).collect::<Vec<_>>();
             // ドキュメントを削除
-            self.documents.swap_remove(key);
+            self.documents.swap_remove(&rc_key);
         }
     }
 
