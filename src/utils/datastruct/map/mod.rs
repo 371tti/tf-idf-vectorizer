@@ -1,8 +1,13 @@
 use hashbrown::HashMap;
+use hashbrown::HashTable;
 use std::borrow::Borrow;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::hash::Hasher;
+use std::ops::Deref;
+use std::pin::Pin;
+use std::ptr;
+use std::ptr::NonNull;
 use std::rc::Rc;
 use std::rc::Weak;
 
@@ -292,7 +297,339 @@ where
     }
 }
 
-pub struct InsertResult<K, V> {
-    pub old_value: Option<V>,
-    pub weak_key: WeakKey<K>,
+
+
+#[derive(Clone, Debug)]
+pub struct IndexMap<K, V, S = ahash::RandomState> {
+    pub values: Vec<V>,
+    pub keys: Vec<K>,
+    pub hashes: Vec<u64>,
+    pub table: HashTable<usize>,
+    pub hash_builder: S,
 }
+
+impl<K, V, S> IndexMap<K, V, S>
+where
+    K: Eq + std::hash::Hash + Clone,
+    S: std::hash::BuildHasher,
+{
+    pub fn with_hasher(hash_builder: S) -> Self {
+        IndexMap {
+            values: Vec::new(),
+            keys: Vec::new(),
+            hashes: Vec::new(),
+            table: HashTable::new(),
+            hash_builder,
+        }
+    }
+
+    pub fn new() -> Self
+    where
+        S: Default,
+    {
+        IndexMap {
+            values: Vec::new(),
+            keys: Vec::new(),
+            hashes: Vec::new(),
+            table: HashTable::new(),
+            hash_builder: S::default(),
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.values.len()
+    }
+
+    pub fn iter_values(&self) -> std::slice::Iter<'_, V> {
+        self.values.iter()
+    }
+
+    pub fn iter_keys(&self) -> std::slice::Iter<'_, K> {
+        self.keys.iter()
+    }
+
+    pub fn iter_key_value(&self) -> impl Iterator<Item = (&K, &V)> {
+        self.keys.iter().zip(self.values.iter())
+    }
+
+    pub fn values(&self) -> &[V] {
+        &self.values.as_slice()
+    }
+
+    pub fn keys(&self) -> &[K] {
+        &self.keys.as_slice()
+    }
+
+    fn hash_key(&self, key: &K) -> u64 {
+        let mut hasher = self.hash_builder.build_hasher();
+        key.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    fn table_insert(&mut self, key: &K, idx: &usize) {
+        let hash = self.hash_key(key);
+        match self.table.find_entry(hash, |&i| self.keys[i] == *key) {
+            Ok(mut occ) => {
+                *occ.get_mut() = *idx;
+            }
+            Err(_entry) => {
+                self.table.insert_unique(
+                    hash,
+                    *idx,
+                    |&i| self.hashes[i]
+                );
+            }
+        }
+    }
+
+    fn table_get(&self, key: &K) -> Option<usize> {
+        let hash = self.hash_key(key);
+        self.table.find(
+            hash, 
+            |&i| self.keys[i] == *key
+        ).copied()
+    }
+
+    fn table_remove(&mut self, key: &K) -> Option<usize> {
+        let hash = self.hash_key(key);
+        if let Ok(entry) = self.table.find_entry(
+            hash,
+            |&i| self.keys[i] == *key
+        ) {
+            let (odl_idx, _) = entry.remove();
+            Some(odl_idx)
+        } else {
+            None
+        }
+    }
+
+    pub fn get(&self, key: &K) -> Option<&V> {
+        if let Some(idx) = self.table_get(key) {
+            unsafe {
+                Some(self.values.get_unchecked(idx))
+            }
+        } else {
+            None
+        }
+    }
+
+    pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
+        if let Some(idx) = self.table_get(key) {
+            unsafe {
+                Some(self.values.get_unchecked_mut(idx))
+            }
+        } else {
+            None
+        }
+    }
+
+    pub fn contains_key(&self, key: &K) -> bool {
+        self.table_get(key).is_some()
+    }
+
+    pub fn insert(&mut self, key: K, value: V) -> Option<InsertResult<K, V>> {
+        if let Some(idx) = self.table_get(&key) {
+            // K が Rc の場合を考慮して すべて差し替える
+            let old_value = Some(std::mem::replace(&mut self.values[idx], value));
+            let old_key = Some(std::mem::replace(&mut self.keys[idx], key));
+            self.table_remove(&key);
+            self.table_insert(&key, &idx);
+            Some(InsertResult {
+                old_value: old_value.unwrap(),
+                old_key:  old_key.unwrap(),
+            })
+        } else {
+            // New key, insert entry
+            let idx = self.values.len();
+            self.keys.push(key);
+            self.values.push(value);
+            self.table_insert(self.keys.last().unwrap(), &idx);
+            None
+        }
+    }
+
+    pub fn swap_remove(&mut self, key: &K) -> Option<V> {
+        let key_ptr = KeyPtr::new(key);
+        let last_idx = self.values.len() - 1;
+        if let Some(&idx) = self.table.get(&key_ptr) {
+            if idx == last_idx {
+                // 最後の要素を削除する場合
+                self.table.remove(&key_ptr);
+                self.keys.pop();
+                return Some(self.values.pop().unwrap());
+            } else {
+                // ptrで参照してるkeyが消える前にtableから消す
+                self.table.remove(&key_ptr);
+                // swap予定の要素のtableをkeyが無効になる前に消しとく
+                self.table.remove(&KeyPtr::new(&self.keys.get_unchecked(idx)));
+                // swap_remove
+                let value = self.values.swap_remove(idx);
+                self.keys.swap_remove(idx);
+                // 移動させられた要素のkeyを取得
+                let moved_key = &self.keys[idx];
+                // swapで移動させられた要素のtableを再登録
+                self.table.insert(KeyPtr::new(moved_key), idx);
+                Some(value)
+            }
+        } else {
+            None
+        }
+    }
+}
+
+pub struct InsertResult<K, V> {
+    pub old_value: V,
+    pub old_key: K,
+}
+
+// pub struct IndexMapVec<T> {
+//     pub vec: IndexMapRawVec<T>,
+//     pub len: usize,
+// }
+
+// impl<T> IndexMapVec<T> {
+//     pub fn new() -> Self {
+//         IndexMapVec {
+//             vec: IndexMapRawVec::with_capacity(0),
+//             len: 0,
+//         }
+//     }
+
+//     pub fn with_capacity(cap: usize) -> Self {
+//         IndexMapVec {
+//             vec: IndexMapRawVec::with_capacity(cap),
+//             len: 0,
+//         }
+//     }
+
+//     /// pushする
+//     /// reallocされた場合、メモリリアドレスが変わるので、その差分をisizeで返す
+//     pub fn push(&mut self, value: T) -> i64 {
+//         let front_ptr = self.vec.val_ptr();
+//         if self.len == self.vec.cap {
+//             self.vec.reallocate(self.vec.cap * 2);
+//         }
+//         unsafe {
+//             *self.vec.val_ptr().add(self.len) = value;
+//         }
+//         self.len += 1;
+//         let new_ptr = self.vec.val_ptr();
+//         (new_ptr as i64) - (front_ptr as i64)
+//     }
+
+//     pub fn len(&self) -> usize {
+//         self.len
+//     }
+
+//     pub fn pop(&mut self) -> Option<T> {
+//         if self.len == 0 {
+//             None
+//         } else {
+//             self.len -= 1;
+//             unsafe {
+//                 Some(std::ptr::read(self.vec.val_ptr().add(self.len)))
+//             }
+//         }
+//     }
+
+//     pub fn get(&self, index: usize) -> Option<&T> {
+//         if index >= self.len {
+//             None
+//         } else {
+//             unsafe {
+//                 Some(&*self.vec.val_ptr().add(index))
+//             }
+//         }
+//     }
+
+//     pub unsafe fn get_unchecked(&self, index: usize) -> &T {
+//         unsafe {
+//             &*self.vec.val_ptr().add(index)
+//         }
+//     }
+
+//     pub unsafe fn get_unchecked_mut(&mut self, index: usize) -> &mut T {
+//         unsafe {
+//             &mut *self.vec.val_ptr().add(index)
+//         }
+//     }
+
+//     pub fn iter(&self) -> std::slice::Iter<'_, T> {
+//         unsafe {
+//             std::slice::from_raw_parts(self.vec.val_ptr(), self.len).iter()
+//         }
+//     }
+
+//     pub fn as_slice(&self) -> &[T] {
+//         unsafe {
+//             std::slice::from_raw_parts(self.vec.val_ptr(), self.len)
+//         }
+//     }
+// }
+
+// impl<T> Clone for IndexMapVec<T> 
+// where T: Clone
+// {
+//     fn clone(&self) -> Self {
+//         let new_vec = IndexMapRawVec::<T>::with_capacity(self.vec.cap);
+//         for i in 0..self.len {
+//             unsafe {
+//                 let src = self.vec.val_ptr().add(i);
+//                 let dst = new_vec.val_ptr().add(i);
+//                 dst.write((*src).clone());
+//             }
+//         }
+//         IndexMapVec {
+//             vec: new_vec,
+//             len: self.len,
+//         }
+//     }
+// }
+
+// impl<T> Debug for IndexMapVec<T> 
+// where T: Debug
+// {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         let slice = unsafe {
+//             std::slice::from_raw_parts(self.vec.val_ptr(), self.len)
+//         };
+//         f.debug_list().entries(slice.iter()).finish()
+//     }
+// }
+
+// pub struct IndexMapRawVec<T> {
+//     pub ptr: NonNull<T>,
+//     pub cap: usize,
+// }
+
+// impl<T> IndexMapRawVec<T> {
+//     pub fn with_capacity(cap: usize) -> Self {
+//         let layout = std::alloc::Layout::array::<T>(cap).unwrap();
+//         let ptr = unsafe { std::alloc::alloc(layout) } as *mut T;
+//         IndexMapRawVec {
+//             ptr: NonNull::new(ptr).unwrap(),
+//             cap,
+//         }
+//     }
+
+//     pub fn reallocate(&mut self, new_cap: usize) {
+//         let old_layout = std::alloc::Layout::array::<T>(self.cap).unwrap();
+//         let new_layout = std::alloc::Layout::array::<T>(new_cap).unwrap();
+//         let new_ptr = unsafe { std::alloc::realloc(self.ptr.as_ptr() as *mut u8, old_layout, new_layout.size()) } as *mut T;
+//         self.ptr = NonNull::new(new_ptr).unwrap();
+//         self.cap = new_cap;
+//     }
+
+//     pub fn val_ptr(&self) -> *mut T {
+//         self.ptr.as_ptr()
+//     }
+// }
+
+// impl<T> Drop for IndexMapRawVec<T> {
+//     fn drop(&mut self) {
+//         let layout = std::alloc::Layout::array::<T>(self.cap).unwrap();
+//         unsafe {
+//             std::alloc::dealloc(self.ptr.as_ptr() as *mut u8, layout);
+//         }
+//     }   
+// }

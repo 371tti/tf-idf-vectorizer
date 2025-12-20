@@ -4,15 +4,18 @@ pub mod token;
 pub mod serde;
 pub mod evaluate;
 
-use std::sync::Arc;
+use std::{rc::Rc, sync::Arc};
 use std::hash::Hash;
 
-use indexmap::IndexMap;
 use num_traits::Num;
 use ::serde::{Deserialize, Serialize};
 
-use crate::{utils::{datastruct::{map::{KeyIndexMap, KeyRc}, vector::{ZeroSpVec, ZeroSpVecTrait}}, normalizer::DeNormalizer}, vectorizer::{corpus::Corpus, tfidf::{DefaultTFIDFEngine, TFIDFEngine}, token::TokenFrequency}};
+use crate::utils::datastruct::map::IndexMap;
+use crate::{utils::{datastruct::{map::{KeyIndexMap}, vector::{ZeroSpVec, ZeroSpVecTrait}}, normalizer::DeNormalizer}, vectorizer::{corpus::Corpus, tfidf::{DefaultTFIDFEngine, TFIDFEngine}, token::TokenFrequency}};
 use ahash::RandomState;
+use indexmap::IndexMap
+
+pub type KeyRc<K> = Rc<K>;
 
 #[derive(Debug, Clone)]
 pub struct TFIDFVectorizer<N = f32, K = String, E = DefaultTFIDFEngine>
@@ -22,9 +25,9 @@ where
     K: Clone + Send + Sync + Eq + std::hash::Hash,
 {
     /// Document's TF Vector
-    pub documents: KeyIndexMap<K, TFVector<N>>,
+    pub documents: IndexMap<KeyRc<K>, TFVector<N>>,
     /// TF Vector's token dimension sample and reverse index
-    pub token_dim_rev_index: IndexMap<Box<str>, Vec<KeyRc<K>>, RandomState>,
+    pub token_dim_rev_index: IndexMap<Box<str>, Vec<KeyRc<K>>>,
     /// Corpus reference
     pub corpus_ref: Arc<Corpus>,
     /// IDF Vector
@@ -106,8 +109,8 @@ where
     /// Create a new TFIDFVectorizer instance
     pub fn new(corpus_ref: Arc<Corpus>) -> Self {
         let mut instance = Self {
-            documents: KeyIndexMap::new(),
-            token_dim_rev_index: IndexMap::with_hasher(RandomState::new()),
+            documents: IndexMap::new(),
+            token_dim_rev_index: IndexMap::new(),
             corpus_ref,
             idf_cache: IDFVector::new(),
             _marker: std::marker::PhantomData,
@@ -135,7 +138,7 @@ where
     fn re_calc_idf(&mut self) {
         self.idf_cache.latest_entropy = self.corpus_ref.get_gen_num();
         self.idf_cache.doc_num = self.corpus_ref.get_doc_num();
-        (self.idf_cache.idf_vec, self.idf_cache.denormalize_num) = E::idf_vec(&self.corpus_ref, &self.token_dim_rev_index);
+        (self.idf_cache.idf_vec, self.idf_cache.denormalize_num) = E::idf_vec(&self.corpus_ref, self.token_dim_rev_index.keys());
     }
 }
 
@@ -162,14 +165,14 @@ where
             }
         }
 
-        let (tf_vec, denormalize_num) = E::tf_vec(doc, &self.token_dim_rev_index);
+        let (tf_vec, denormalize_num) = E::tf_vec(doc, self.token_dim_rev_index.keys());
         let mut doc = TFVector {
             tf_vec,
             token_sum,
             denormalize_num,
         };
         doc.shrink_to_fit();
-        self.documents.insert_with_key_rc(key_rc, doc);
+        self.documents.insert(key_rc, doc);
     }
 
     pub fn del_doc(&mut self, key: &K)
