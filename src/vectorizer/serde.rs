@@ -80,6 +80,7 @@ where
         let mut state = serializer.serialize_struct("TFIDFVectorizer", 3)?;
         state.serialize_field("documents", &self.documents)?;
         state.serialize_field("token_dim_sample", &self.token_dim_rev_index.keys())?;
+        // これいらんわ、結局再計算してるし、、 後方互換の問題でいったん放置
         state.serialize_field("idf", &self.idf_cache)?;
         state.end()
     }

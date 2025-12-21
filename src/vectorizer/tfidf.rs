@@ -40,7 +40,7 @@ impl<K> TFIDFEngine<f32, K> for DefaultTFIDFEngine
         let doc_num = corpus.get_doc_num() as f64;
         for token in token_dim_sample.iter() {
             let doc_freq = corpus.get_token_count(token);
-            idf_vec.push((doc_num / (doc_freq as f64 + 1.0)) as f32);
+            idf_vec.push((1.0 + (doc_num / (doc_freq as f64 + 1.0))).ln() as f32);
         }
         (idf_vec, 1.0)
     }
@@ -68,7 +68,7 @@ impl<K> TFIDFEngine<f64, K> for DefaultTFIDFEngine
         let doc_num = corpus.get_doc_num() as f64;
         for token in token_dim_sample.iter() {
             let doc_freq = corpus.get_token_count(token);
-            idf_vec.push(doc_num / (doc_freq as f64 + 1.0));
+            idf_vec.push((1.0 + (doc_num / (doc_freq as f64 + 1.0))).ln());
         }
         (idf_vec, 1.0)
     }
@@ -96,9 +96,20 @@ impl<K> TFIDFEngine<u32, K> for DefaultTFIDFEngine
         let doc_num = corpus.get_doc_num() as f64;
         for token in token_dim_sample.iter() {
             let doc_freq = corpus.get_token_count(token);
-            idf_vec.push((doc_num / (doc_freq as f64 + 1.0)) as u32);
+            idf_vec.push((1.0 + (doc_num / (doc_freq as f64 + 1.0))).ln());
         }
-        (idf_vec, 1.0)
+        let max = idf_vec
+            .iter()
+            .max_by(|a, b| a.total_cmp(b))
+            .copied()
+            .unwrap_or(1.0);
+        (
+        idf_vec
+            .into_iter()
+            .map(|idf| (idf / max * u32::MAX as f64).ceil() as u32)
+            .collect(),
+        max
+        )
     }
 
     fn tf_vec(freq: &TokenFrequency, token_dim_sample: &Vec<Box<str>>) -> (ZeroSpVec<u32>, f64) {
@@ -134,7 +145,7 @@ impl<K> TFIDFEngine<u16, K> for DefaultTFIDFEngine
         let doc_num = corpus.get_doc_num() as f64;
         for token in token_dim_sample.iter() {
             let doc_freq = corpus.get_token_count(token);
-            idf_vec.push(doc_num / (doc_freq as f64 + 1.0));
+            idf_vec.push((1.0 + (doc_num / (doc_freq as f64 + 1.0))).ln());
         }
         let max = idf_vec
             .iter()
@@ -184,7 +195,7 @@ impl<K> TFIDFEngine<u8, K> for DefaultTFIDFEngine
         let doc_num = corpus.get_doc_num() as f64;
         for token in token_dim_sample.iter() {
             let doc_freq = corpus.get_token_count(token);
-            idf_vec.push(doc_num / (doc_freq as f64 + 1.0));
+            idf_vec.push((1.0 + (doc_num / (doc_freq as f64 + 1.0))).ln());
         }
         let max = idf_vec
             .iter()

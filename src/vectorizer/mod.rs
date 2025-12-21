@@ -150,11 +150,14 @@ where
     /// Add a document
     /// The immediately referenced Corpus is also updated
     pub fn add_doc(&mut self, key: K, doc: &TokenFrequency) {
+        // key_rcを作成
+        let key_rc = KeyRc::new(key);
+        if self.documents.contains_key(&key_rc) {
+            self.del_doc(&key_rc);
+        }
         let token_sum = doc.token_sum();
         // ドキュメントのトークンをコーパスに追加
         self.add_corpus(doc);
-        // key_rcを作成
-        let key_rc = KeyRc::new(key);
         // 新語彙を差分追加 (O(|doc_vocab|))
         for tok in doc.token_set_ref_str() {
             self.token_dim_rev_index
