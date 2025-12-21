@@ -22,7 +22,8 @@ where
     /// Token dimension sample for TF vectors
     pub token_dim_sample: Vec<Box<str>>,
     /// IDF vector
-    pub idf: IDFVector<N>,
+    #[serde(default, skip_serializing, skip_deserializing)]
+    pub idf: Option<IDFVector<N>>,
     #[serde(default, skip_serializing, skip_deserializing)]
     _marker: std::marker::PhantomData<E>,
 }
@@ -56,7 +57,7 @@ where
             documents: self.documents,
             token_dim_rev_index: token_dim_rev_index,
             corpus_ref,
-            idf_cache: self.idf,
+            idf_cache: IDFVector::new(),
             _marker: std::marker::PhantomData,
         };
         instance.update_idf();
@@ -77,11 +78,9 @@ where
     where
         S: serde::Serializer,
     {
-        let mut state = serializer.serialize_struct("TFIDFVectorizer", 3)?;
+        let mut state = serializer.serialize_struct("TFIDFVectorizer", 2)?;
         state.serialize_field("documents", &self.documents)?;
         state.serialize_field("token_dim_sample", &self.token_dim_rev_index.keys())?;
-        // これいらんわ、結局再計算してるし、、 後方互換の問題でいったん放置
-        state.serialize_field("idf", &self.idf_cache)?;
         state.end()
     }
 }

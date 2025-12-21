@@ -20,7 +20,7 @@ lang [ [en](./README.md) | ja ]
 Cargo.toml
 ```toml
 [dependencies]
-tf-idf-vectorizer = "0.3.0"  # 本READMEは `v0.3.x` 向け
+tf-idf-vectorizer = "0.7"  # 本READMEは `v0.7.x` 向け
 ```
 
 ## 基本的な使い方
@@ -82,13 +82,11 @@ let restored = data.into_tf_idf_vectorizer(&corpus);
 2. 内積 / コサイン等で各ドキュメントと比較
 3. すべての結果を Hits で返却
 
-実装された Compare トレイト / DefaultCompare を差し替えれば独自スコア関数を注入可能。
-
 ## パフォーマンス指針
 - トークン辞書 (token_dim_sample / token_dim_set) は再構築を避けキャッシュ
 - TF スパース化でゼロ省略
 - 整数スケール型 (u16/u32) を使うとメモリ圧縮 (正規化時は 1/max 乗算のみ 演算はfloatのほうが少し高速です)
-- イテレータ合成で一時 Vec を削減 (tf.zip(idf).map(...))
+- 逆Indexを即時生成
 
 ## 型概要
 | 型 | 役割 |
@@ -104,7 +102,6 @@ let restored = data.into_tf_idf_vectorizer(&corpus);
 
 ## カスタマイズ
 - 数値型を f32/f64/u16/u32 などに切替
-- Compare トレイト実装でスコア関数拡張
 - TFIDFEngine を差し替えて異なる重み付け方式実験
 
 ## 例 (examples/)
