@@ -17,7 +17,7 @@ pub enum SimilarityAlgorithm {
     /// Cosine similarity
     /// Considers only direction
     CosineSimilarity,
-    /// BM25 similarity
+    /// BM25-Like similarity
     /// Considers document length
     /// param k1: Controls term frequency saturation
     /// param b: Controls document length normalization
@@ -282,7 +282,7 @@ where
         doc_scores
     }
 
-    /// Scoring by BM25
+    /// Scoring by BM25-Like
     fn scoring_bm25(&self, freq: &TokenFrequency, k1: f64, b: f64) -> Vec<(K, f64, u64)> {
         let (tf, _tf_denormalize_num) = E::tf_vec(&freq, self.token_dim_rev_index.keys());
         let k1_p = k1 + 1.0;
@@ -294,15 +294,11 @@ where
             key.deref().clone(),
             {
                 let len_p = doc.token_sum as f64 * rev_avg_l;
-                let mut cut_down = 0;
-                tf.raw_iter().map(|(idx, _val)| {
-                    let idf: f64 = self.idf_cache.idf_vec.get(idx).copied().unwrap_or(N::zero()).denormalize(self.idf_cache.denormalize_num);
-                    let tf: f64 = doc.tf_vec.raw_get_with_cut_down(idx, cut_down).map(|v| {
-                        cut_down = v.index + 1; // Update cut_down to skip processed indices
-                        v.value
-                    }).copied().unwrap_or(N::zero()).denormalize(doc.denormalize_num);
+                tf.raw_iter().map(|(idx, _qtf)| {
+                    let idf: f64 = self.idf_cache.idf_vec.get(idx).copied().unwrap_or(N::zero()).denormalize(self.idf_cache.denormalize_num).ln();
+                    let dtf: f64 = doc.tf_vec.get(idx).copied().unwrap_or(N::zero()).denormalize(doc.denormalize_num);
                     // BM25 scoring formula
-                    idf * ((tf * k1_p) / (tf + k1 * (1.0 - b + (b * len_p))))
+                    idf * ((dtf * k1_p) / (dtf + k1 * (1.0 - b + (b * len_p))))
                 }).sum::<f64>()
             },
             doc.token_sum

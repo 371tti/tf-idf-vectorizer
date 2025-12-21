@@ -328,7 +328,7 @@ dependencies = [
 
 [[package]]
 name = "tf-idf-vectorizer"
-version = "0.6.3"
+version = "0.6.4"
 dependencies = [
  "ahash",
  "bincode",
