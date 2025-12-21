@@ -230,11 +230,11 @@ where
         }
     }
 
-    pub fn entry_mut<'a>(&'a mut self, key: &'a K) -> EntryMut<'a, K, V, S> {
-        if let Some(idx) = self.table_get(key) {
+    pub fn entry_mut<'a>(&'a mut self, key: K) -> EntryMut<'a, K, V, S> {
+        if let Some(idx) = self.table_get(&key) {
             unsafe {
                 EntryMut::Occupied {
-                    key: self.keys.get_unchecked(idx),
+                    key: key,
                     value: self.values.get_unchecked_mut(idx),
                     index: idx,
                 }
@@ -329,8 +329,8 @@ where
 }
 
 pub enum EntryMut<'a, K, V, S> {
-    Occupied { key: &'a K, value: &'a mut V, index: usize },
-    Vacant { key: &'a K , map: &'a mut IndexMap<K, V, S> },
+    Occupied { key: K, value: &'a mut V, index: usize },
+    Vacant { key: K , map: &'a mut IndexMap<K, V, S> },
 }
 
 impl<'a, K, V, S> EntryMut<'a, K, V, S>
@@ -350,8 +350,8 @@ where
         match self {
             EntryMut::Occupied { value: v, .. } => v,
             EntryMut::Vacant { key, map } => {
-                map.insert(key, value());
-                map.get_mut(key).unwrap()
+                map.insert(&key, value());
+                map.get_mut(&key).unwrap()
             }
         }
     }
@@ -457,11 +457,11 @@ mod tests {
     fn entry_or_insert_with_works() {
         let mut m = M::new();
 
-        let v = m.entry_mut(&7).or_insert_with(|| 123);
+        let v = m.entry_mut(7).or_insert_with(|| 123);
         assert_eq!(*v, 123);
 
         // 2回目は既存参照が返る
-        let v2 = m.entry_mut(&7).or_insert_with(|| 999);
+        let v2 = m.entry_mut(7).or_insert_with(|| 999);
         assert_eq!(*v2, 123);
 
         assert_internal_invariants(&m);
@@ -645,7 +645,7 @@ mod tests {
         const ITER_NUM: u64 = 223259;
         let mut map: IndexMap<u64, Vec<u64>> = IndexMap::new();
         for i in 0..ITER_NUM {
-            map.entry_mut(&0).or_insert_with(Vec::new).push(i);
+            map.entry_mut(0).or_insert_with(Vec::new).push(i);
         }
         assert_eq!(map.len(), 1);
         assert_eq!(map.get(&0).unwrap().len() as u64, ITER_NUM);

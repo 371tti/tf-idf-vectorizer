@@ -159,9 +159,9 @@ where
         // ドキュメントのトークンをコーパスに追加
         self.add_corpus(doc);
         // 新語彙を差分追加 (O(|doc_vocab|))
-        for tok in doc.token_set_ref_str() {
+        for tok in doc.token_set(){
             self.token_dim_rev_index
-                .entry_mut(&Box::from(tok))
+                .entry_mut(tok.into_boxed_str())
                 .or_insert_with(Vec::new)
                 .push(Rc::clone(&key_rc)); // 逆Indexに追加
         }
@@ -188,7 +188,7 @@ where
                     if let Some(doc_keys) = doc_keys {
                         // 逆Indexから削除
                         let rc_key = KeyRc::new(key.clone());
-                        doc_keys.retain(|k| *k == rc_key);
+                        doc_keys.retain(|k| *k != rc_key);
                     }
                     let token = self.token_dim_rev_index.get_key_with_index(idx).cloned();
                     token
