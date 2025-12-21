@@ -95,11 +95,29 @@ where
     /// Does not check the IDF vector (can be called with immutable reference)
     /// Call update_idf() manually if needed
     pub fn similarity_uncheck_idf(&self, freq: &TokenFrequency, algorithm: &SimilarityAlgorithm) -> Hits<K> {
+        let doc_iter = self.optimized_iter(freq);
         let result = match algorithm {
             SimilarityAlgorithm::Contains => self.contains_docs(freq),
-            SimilarityAlgorithm::Dot => self.scoring_dot(&freq),
-            SimilarityAlgorithm::CosineSimilarity => self.scoring_cosine(&freq),
-            SimilarityAlgorithm::BM25(k1, b) => self.scoring_bm25(&freq, *k1, *b),
+            SimilarityAlgorithm::Dot => self.scoring_dot(&freq, doc_iter),
+            SimilarityAlgorithm::CosineSimilarity => self.scoring_cosine(&freq, doc_iter),
+            SimilarityAlgorithm::BM25(k1, b) => self.scoring_bm25(&freq, *k1, *b, doc_iter),
+        };
+
+        Hits { list: result }
+    }
+
+    pub fn similarity_full_scan(&mut self, freq: &TokenFrequency, algorithm: &SimilarityAlgorithm) -> Hits<K> {
+        self.update_idf();
+        self.similarity_full_scan_uncheck_idf(freq, algorithm)
+    }
+
+    pub fn similarity_full_scan_uncheck_idf(&self, freq: &TokenFrequency, algorithm: &SimilarityAlgorithm) -> Hits<K> {
+        let doc_iter = self.documents.iter();
+        let result = match algorithm {
+            SimilarityAlgorithm::Contains => self.contains_docs(freq),
+            SimilarityAlgorithm::Dot => self.scoring_dot(&freq, doc_iter),
+            SimilarityAlgorithm::CosineSimilarity => self.scoring_cosine(&freq, doc_iter),
+            SimilarityAlgorithm::BM25(k1, b) => self.scoring_bm25(&freq, *k1, *b, doc_iter),
         };
 
         Hits { list: result }
@@ -177,10 +195,10 @@ where
 }
 
 /// High-level search implementations
-impl<N, K, E> TFIDFVectorizer<N, K, E>
+impl<'a, N, K, E > TFIDFVectorizer<N, K, E>
 where
-    K: Clone + Send + Sync + PartialEq + Eq + Hash,
-    N: Num + Copy + Into<f64> + DeNormalizer + Send + Sync,
+    K: Clone + Send + Sync + PartialEq + Eq + Hash + 'a,
+    N: Num + Copy + Into<f64> + DeNormalizer + Send + Sync + 'a,
     E: TFIDFEngine<N, K> + Send + Sync,
 {
     /// Contains document indices that have at least one token in freq
@@ -193,10 +211,10 @@ where
     }
 
     /// Scoring by dot product
-    fn scoring_dot(&self, freq: &TokenFrequency) -> Vec<(K, f64, u64)> {
+    fn scoring_dot(&self, freq: &TokenFrequency, doc_iter: impl Iterator<Item = (&'a KeyRc<K>, &'a TFVector<N>)>) -> Vec<(K, f64, u64)> {
         let (tf, tf_denormalize_num) = E::tf_vec(&freq, self.token_dim_rev_index.keys());
 
-        let doc_scores: Vec<(K, f64, u64)> = self.optimized_iter(freq).map(|(key, doc)| {(
+        let doc_scores: Vec<(K, f64, u64)> = doc_iter.map(|(key, doc)| {(
             key.deref().clone(),
             {
                 let mut cut_down = 0;
@@ -218,9 +236,9 @@ where
 
     /// Scoring by cosine similarity
     /// cosθ = A・B / (|A||B|)
-    fn scoring_cosine(&self, freq: &TokenFrequency) -> Vec<(K, f64, u64)> {
+    fn scoring_cosine(&self, freq: &TokenFrequency, doc_iter: impl Iterator<Item = (&'a KeyRc<K>, &'a TFVector<N>)>) -> Vec<(K, f64, u64)> {
         let (tf_1, tf_denormalize_num) = E::tf_vec(&freq, self.token_dim_rev_index.keys());
-        let doc_scores: Vec<(K, f64, u64)> = self.optimized_iter(freq).map(|(key, doc)| {
+        let doc_scores: Vec<(K, f64, u64)> = doc_iter.map(|(key, doc)| {
             let tf_1 = tf_1.raw_iter();
             let tf_2 = doc.tf_vec.raw_iter();
             let mut a_it = tf_1.fuse();
@@ -283,14 +301,14 @@ where
     }
 
     /// Scoring by BM25-Like
-    fn scoring_bm25(&self, freq: &TokenFrequency, k1: f64, b: f64) -> Vec<(K, f64, u64)> {
+    fn scoring_bm25(&self, freq: &TokenFrequency, k1: f64, b: f64, doc_iter: impl Iterator<Item = (&'a KeyRc<K>, &'a TFVector<N>)>) -> Vec<(K, f64, u64)> {
         let (tf, _tf_denormalize_num) = E::tf_vec(&freq, self.token_dim_rev_index.keys());
         let k1_p = k1 + 1.0;
         // Average document length
         let avg_l = self.documents.iter().map(|(_k, doc)| doc.token_sum as f64).sum::<f64>() / self.documents.len() as f64;
         let rev_avg_l = 1.0 / avg_l;
 
-        let doc_scores: Vec<(K, f64, u64)> = self.optimized_iter(freq).map(|(key, doc)| {(
+        let doc_scores: Vec<(K, f64, u64)> = doc_iter.map(|(key, doc)| {(
             key.deref().clone(),
             {
                 let len_p = doc.token_sum as f64 * rev_avg_l;

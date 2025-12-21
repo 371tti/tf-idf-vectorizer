@@ -163,7 +163,7 @@ where
             self.token_dim_rev_index
                 .entry_mut(&Box::from(tok))
                 .or_insert_with(Vec::new)
-                .push(Rc::clone(&key_rc));
+                .push(Rc::clone(&key_rc)); // 逆Indexに追加
         }
 
         let (tf_vec, denormalize_num) = E::tf_vec(doc, self.token_dim_rev_index.keys());

@@ -41,8 +41,9 @@ where
         let raw_iter = self.documents.iter();
         let mut token_dim_rev_index: IndexMap<Box<str>, Vec<KeyRc<K>>, RandomState> =
             IndexMap::with_capacity(self.token_dim_sample.len());
+        // 順序通りに初めに登録しておく
         self.token_dim_sample.iter().for_each(|token| {
-            token_dim_rev_index.insert(&token.clone(), Vec::new());
+            token_dim_rev_index.insert(token, Vec::new());
         });
         for (key, doc) in raw_iter {
             doc.tf_vec.raw_iter().for_each(|(idx, _)| {

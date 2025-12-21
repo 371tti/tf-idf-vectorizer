@@ -639,4 +639,15 @@ mod tests {
         let expected: Vec<(u64, i64)> = m.keys.iter().copied().zip(m.values.iter().copied()).collect();
         assert_eq!(collected, expected);
     }
+
+    #[test]
+    fn num_23257_issue() {
+        const ITER_NUM: u64 = 223259;
+        let mut map: IndexMap<u64, Vec<u64>> = IndexMap::new();
+        for i in 0..ITER_NUM {
+            map.entry_mut(&0).or_insert_with(Vec::new).push(i);
+        }
+        assert_eq!(map.len(), 1);
+        assert_eq!(map.get(&0).unwrap().len() as u64, ITER_NUM);
+    }
 }
