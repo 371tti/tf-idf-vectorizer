@@ -166,14 +166,14 @@ where
                 .push(Rc::clone(&key_rc)); // 逆Indexに追加
         }
 
-        let (tf_vec, denormalize_num) = E::tf_vec(doc, self.token_dim_rev_index.keys());
+        let (tf_vec, denormalize_num) = E::tf_vec(doc, self.token_dim_rev_index.as_index_set());
         let mut doc = TFVector {
             tf_vec,
             token_sum,
             denormalize_num,
         };
         doc.shrink_to_fit();
-        self.documents.insert(&key_rc, doc);
+        self.documents.insert(key_rc, doc);
     }
 
     pub fn del_doc(&mut self, key: &K)

@@ -19,7 +19,7 @@ where
     {
         let mut state = serializer.serialize_struct("IndexMap", 2)?;
         state.serialize_field("values", &self.values)?;
-        state.serialize_field("keys", &self.keys)?;
+        state.serialize_field("keys", &self.index_set.keys)?;
         state.end()
     }
 }
@@ -166,17 +166,17 @@ mod tests {
     #[test]
     fn serde_roundtrip_json_map_format_preserves_order_and_lookup() {
         let mut m = IndexMap::<String, i64>::new();
-        m.insert(&"a".to_string(), 10);
-        m.insert(&"b".to_string(), 20);
-        m.insert(&"c".to_string(), 30);
+        m.insert("a".to_string(), 10);
+        m.insert("b".to_string(), 20);
+        m.insert("c".to_string(), 30);
 
         let s = serde_json::to_string(&m).unwrap();
         let de: IndexMap<String, i64> = serde_json::from_str(&s).unwrap();
 
-        assert_eq!(de.keys, m.keys);
+        assert_eq!(de.index_set.keys, m.index_set.keys);
         assert_eq!(de.values, m.values);
         assert_eq!(de.len(), 3);
-        assert_eq!(de.hashes.len(), de.len());
+        assert_eq!(de.index_set.hashes.len(), de.len());
 
         for (k, v) in m.iter() {
             assert_eq!(de.get(k).copied(), Some(*v));
@@ -187,15 +187,15 @@ mod tests {
     fn serde_roundtrip_bincode_seq_format_works() {
         let mut m = IndexMap::<u64, i64>::new();
         for i in 0..100u64 {
-            m.insert(&i, (i as i64) * -7);
+            m.insert(i, (i as i64) * -7);
         }
 
         let bytes = bincode::serialize(&m).unwrap();
         let de: IndexMap<u64, i64> = bincode::deserialize(&bytes).unwrap();
 
-        assert_eq!(de.keys, m.keys);
+        assert_eq!(de.index_set.keys, m.index_set.keys);
         assert_eq!(de.values, m.values);
-        assert_eq!(de.hashes.len(), de.len());
+        assert_eq!(de.index_set.hashes.len(), de.len());
 
         for (k, v) in m.iter() {
             assert_eq!(de.get(k).copied(), Some(*v));

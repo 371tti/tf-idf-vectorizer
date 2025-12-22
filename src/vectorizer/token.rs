@@ -163,6 +163,17 @@ impl From<Corpus> for TokenFrequency {
 
 /// Implementation for retrieving information from TokenFrequency
 impl TokenFrequency {
+    /// Get iterator over all tokens and their counts
+    /// 
+    /// # Returns
+    /// * `impl Iterator<Item=(&str, u64)>` - Iterator over tokens and their counts
+    #[inline]
+    pub fn iter(&self) -> impl Iterator<Item=(&str, u64)> {
+        self.token_count.iter().map(|(token, &count)| {
+            (token.as_str(), count)
+        })
+    }
+
     /// Get a vector of all tokens and their counts
     ///
     /// # Returns
@@ -257,6 +268,15 @@ impl TokenFrequency {
     #[inline]
     pub fn contains_token(&self, token: &str) -> bool {
         self.token_count.contains_key(token)
+    }
+
+    /// token_set_iter
+    /// 
+    /// # Returns
+    /// * `impl Iterator<Item=&str>` - Iterator over the set of tokens
+    #[inline]
+    pub fn token_set_iter(&self) -> impl Iterator<Item=&str> {
+        self.token_count.keys().map(|s| s.as_str())
     }
 
     /// Get the set of tokens

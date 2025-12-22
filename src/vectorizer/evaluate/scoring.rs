@@ -212,7 +212,7 @@ where
 
     /// Scoring by dot product
     fn scoring_dot(&self, freq: &TokenFrequency, doc_iter: impl Iterator<Item = (&'a KeyRc<K>, &'a TFVector<N>)>) -> Vec<(K, f64, u64)> {
-        let (tf, tf_denormalize_num) = E::tf_vec(&freq, self.token_dim_rev_index.keys());
+        let (tf, tf_denormalize_num) = E::tf_vec(&freq, self.token_dim_rev_index.as_index_set());
 
         let doc_scores: Vec<(K, f64, u64)> = doc_iter.map(|(key, doc)| {(
             key.deref().clone(),
@@ -237,7 +237,7 @@ where
     /// Scoring by cosine similarity
     /// cosθ = A・B / (|A||B|)
     fn scoring_cosine(&self, freq: &TokenFrequency, doc_iter: impl Iterator<Item = (&'a KeyRc<K>, &'a TFVector<N>)>) -> Vec<(K, f64, u64)> {
-        let (tf_1, tf_denormalize_num) = E::tf_vec(&freq, self.token_dim_rev_index.keys());
+        let (tf_1, tf_denormalize_num) = E::tf_vec(&freq, self.token_dim_rev_index.as_index_set());
         let doc_scores: Vec<(K, f64, u64)> = doc_iter.map(|(key, doc)| {
             let tf_1 = tf_1.raw_iter();
             let tf_2 = doc.tf_vec.raw_iter();
@@ -302,7 +302,7 @@ where
 
     /// Scoring by BM25-Like
     fn scoring_bm25(&self, freq: &TokenFrequency, k1: f64, b: f64, doc_iter: impl Iterator<Item = (&'a KeyRc<K>, &'a TFVector<N>)>) -> Vec<(K, f64, u64)> {
-        let (tf, _tf_denormalize_num) = E::tf_vec(&freq, self.token_dim_rev_index.keys());
+        let (tf, _tf_denormalize_num) = E::tf_vec(&freq, self.token_dim_rev_index.as_index_set());
         let k1_p = k1 + 1.0;
         // Average document length
         let avg_l = self.documents.iter().map(|(_k, doc)| doc.token_sum as f64).sum::<f64>() / self.documents.len() as f64;
