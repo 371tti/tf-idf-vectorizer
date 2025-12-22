@@ -166,7 +166,8 @@ where
                 .push(Rc::clone(&key_rc)); // 逆Indexに追加
         }
 
-        let (tf_vec, denormalize_num) = E::tf_vec(doc, self.token_dim_rev_index.as_index_set());
+        let (mut tf_vec, denormalize_num) = E::tf_vec(doc, self.token_dim_rev_index.as_index_set());
+        tf_vec.shrink_to_fit();
         let mut doc = TFVector {
             tf_vec,
             token_sum,
