@@ -57,18 +57,22 @@ where
         }
     }
 
+    #[inline]
     pub fn len(&self) -> usize {
         self.values.len()
     }
 
+    #[inline]
     pub fn iter_values(&self) -> std::slice::Iter<'_, V> {
         self.values.iter()
     }
 
+    #[inline]
     pub fn iter_keys(&self) -> std::slice::Iter<'_, K> {
         self.index_set.keys.iter()
     }
 
+    #[inline]
     pub fn iter(&self) -> IndexMapIter<'_, K, V, S> {
         IndexMapIter {
             map: self,
@@ -76,18 +80,22 @@ where
         }
     }
 
+    #[inline]
     pub fn values(&self) -> &Vec<V> {
         &self.values
     }
 
+    #[inline]
     pub fn keys(&self) -> &Vec<K> {
         &self.index_set.keys()
     }
 
+    #[inline]
     pub fn as_index_set(&self) -> &IndexSet<K, S> {
         &self.index_set
     }
 
+    #[inline]
     pub fn get<Q: ?Sized>(&self, key: &Q) -> Option<&V> 
     where 
         K: Borrow<Q>,
@@ -102,6 +110,7 @@ where
         }
     }
 
+    #[inline]
     pub fn get_mut<Q: ?Sized>(&mut self, key: &Q) -> Option<&mut V> 
     where 
         K: Borrow<Q>,
@@ -116,18 +125,22 @@ where
         }
     }
 
+    #[inline]
     pub fn get_with_index(&self, index: usize) -> Option<&V> {
         self.values.get(index)
     }
 
+    #[inline]
     pub fn get_with_index_mut(&mut self, index: usize) -> Option<&mut V> {
         self.values.get_mut(index)
     }
 
+    #[inline]
     pub fn get_key_with_index(&self, index: usize) -> Option<&K> {
         self.index_set.get_with_index(index)
     }
 
+    #[inline]
     pub fn get_key_value_with_index(&self, index: usize) -> Option<(&K, &V)> {
         if index < self.len() {
             unsafe {
@@ -141,6 +154,7 @@ where
         }
     }
 
+    #[inline]
     pub fn get_index<Q: ?Sized>(&self, key: &Q) -> Option<usize> 
     where 
         K: Borrow<Q>,
@@ -157,6 +171,7 @@ where
         self.index_set.contains_key(key)
     }
 
+    #[inline]
     pub fn insert(&mut self, key: K, value: V) -> Option<InsertResult<K, V>> {
         if let Some(idx) = self.index_set.table_get(&key) {
             // K が Rc の場合を考慮して すべて差し替える
@@ -181,6 +196,7 @@ where
         }
     }
 
+    #[inline]
     pub fn entry_mut<'a>(&'a mut self, key: K) -> EntryMut<'a, K, V, S> {
         if let Some(idx) = self.index_set.table_get(&key) {
             unsafe {
@@ -195,6 +211,7 @@ where
         }
     }
 
+    #[inline]
     pub fn swap_remove<Q: ?Sized>(&mut self, key: &Q) -> Option<V> 
     where 
         K: Borrow<Q>,
@@ -229,6 +246,7 @@ where
         }
     }
 
+    #[inline]
     pub fn from_kv_vec(k_vec: Vec<K>, v_vec: Vec<V>) -> Self
     where
         S: std::hash::BuildHasher + Default,
@@ -259,6 +277,7 @@ where
 {
     type Item = (&'a K, &'a V);
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         if self.index < self.map.len() {
             unsafe {
@@ -272,11 +291,13 @@ where
         }
     } 
     
+    #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         let remaining = self.map.len() - self.index;
         (remaining, Some(remaining))
     }
 
+    #[inline]
     fn nth(&mut self, n: usize) -> Option<Self::Item> {
         self.index += n;
         self.next()
@@ -293,10 +314,12 @@ where
     K: Eq + std::hash::Hash + Clone,
     S: std::hash::BuildHasher,
 {
+    #[inline]
     pub fn is_occupied(&self) -> bool {
         matches!(self, EntryMut::Occupied { .. })
     }
 
+    #[inline]
     pub fn or_insert_with<F>(self, value: F) -> &'a mut V
     where
         F: FnOnce() -> V,
@@ -374,6 +397,7 @@ where
     }
 
     /// hash util
+    #[inline]
     fn hash_key<Q: ?Sized>(&self, key: &Q) -> u64 
     where 
         K: Borrow<Q>,
@@ -388,6 +412,7 @@ where
     /// 完全な整合性が必要
     /// keyに対するidxを更新し、更新したidxを返す
     /// 存在しない場合はNone
+    #[inline]
     unsafe fn table_override<Q: ?Sized>(&mut self, key: &Q, idx: &usize) -> Option<usize> 
     where 
         K: Borrow<Q>,
@@ -409,6 +434,7 @@ where
     /// append
     /// 完全な整合性が必要
     /// hashesとtableを更新する
+    #[inline]
     unsafe fn table_append<Q: ?Sized>(&mut self, key: &Q, idx: &usize) 
     where 
         K: Borrow<Q>,
@@ -425,6 +451,7 @@ where
 
     /// get
     /// とくに注意なし 不可変参照なので
+    #[inline]
     fn table_get<Q: ?Sized>(&self, key: &Q) -> Option<usize> 
     where 
         K: Borrow<Q>,
@@ -440,6 +467,7 @@ where
     /// remove
     /// 完全な整合性が必要
     /// hashesはswap_removeされます
+    #[inline]
     unsafe fn table_swap_remove<Q: ?Sized>(&mut self, key: &Q) -> Option<usize> 
     where 
         K: Borrow<Q>,
@@ -458,6 +486,7 @@ where
         }
     }
 
+    #[inline]
     pub fn contains_key<Q: ?Sized>(&self, key: &Q) -> bool 
     where 
         K: Borrow<Q>,
@@ -466,10 +495,12 @@ where
         self.table_get(key).is_some()
     }
 
+    #[inline]
     pub fn len(&self) -> usize {
         self.keys.len()
     }
 
+    #[inline]
     pub fn get_index<Q: ?Sized>(&self, key: &Q) -> Option<usize> 
     where 
         K: Borrow<Q>,
@@ -478,14 +509,17 @@ where
         self.table_get(key)
     }
 
+    #[inline]
     pub fn iter(&self) -> std::slice::Iter<'_, K> {
         self.keys.iter()
     }
 
+    #[inline]
     pub fn keys(&self) -> &Vec<K> {
         &self.keys
     }
 
+    #[inline]
     pub fn get_with_index(&self, index: usize) -> Option<&K> {
         self.keys.get(index)
     }

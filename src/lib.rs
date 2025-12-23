@@ -7,5 +7,7 @@ pub use vectorizer::{
     token::TokenFrequency,
     evaluate::scoring::SimilarityAlgorithm,
     evaluate::scoring::Hits,
+    evaluate::scoring::HitEntry,
+    tfidf::{DefaultTFIDFEngine, TFIDFEngine},
     serde::TFIDFData,
 };

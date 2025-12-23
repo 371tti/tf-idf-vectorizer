@@ -30,34 +30,32 @@ use std::sync::Arc;
 use tf_idf_vectorizer::{Corpus, SimilarityQuery, TFIDFVectorizer, TokenFrequency};
 
 fn main() {
-    // コーパスを用意
+    // build corpus
     let corpus = Arc::new(Corpus::new());
 
-    // token頻度の用意
+    // add documents
     let mut freq1 = TokenFrequency::new();
     freq1.add_tokens(&["rust", "高速", "並列", "rust"]);
     let mut freq2 = TokenFrequency::new();
     freq2.add_tokens(&["rust", "柔軟", "安全", "rust"]);
 
-    // vectorizerの用意 内部パラメータはu16量子化に指定
+    // build query
     let mut vectorizer: TFIDFVectorizer<u16> = TFIDFVectorizer::new(corpus);    
-
-    // vectorizerにドキュメントを挿入
     vectorizer.add_doc("doc1".to_string(), &freq1);
-    vectorizer.add_doc("doc2".to_string(), &freq2);e
+    vectorizer.add_doc("doc2".to_string(), &freq2);
+    vectorizer.del_doc(&"doc1".to_string());
+    vectorizer.add_doc("doc3".to_string(), &freq1);
 
-    // query用のtoken頻度を用意
+    // similarity search
     let mut query_tokens = TokenFrequency::new();
     query_tokens.add_tokens(&["rust", "高速"]);
-    let query = SimilarityQuery::CosineSimilarity(query_tokens);
-    let mut result = vectorizer.similarity(query);
-    result.sort_by_score();
+    let algorithm = SimilarityAlgorithm::CosineSimilarity;
+    let mut result = vectorizer.similarity(&query_tokens, &algorithm);
+    result.sort_by_score_desc();
 
-    // 表示
-    result.list.iter().for_each(|(k, s, l)| {
-        println!("doc: {}, score: {}, length: {}", k, s, l);
-    });    
-
+    // print result
+    println!("Search Results: \n{}", result);
+    // debug
     println!("result count: {}", result.list.len());
     println!("{:?}", vectorizer);
 }

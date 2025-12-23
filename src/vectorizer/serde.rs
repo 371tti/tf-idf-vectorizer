@@ -38,21 +38,17 @@ where
     /// `corpus_ref` is a reference to the corpus.
     pub fn into_tf_idf_vectorizer(self, corpus_ref: Arc<Corpus>) -> TFIDFVectorizer<N, K, E>
     {
-        let raw_iter = self.documents.iter();
         let mut token_dim_rev_index: IndexMap<Box<str>, Vec<KeyRc<K>>, RandomState> =
             IndexMap::with_capacity(self.token_dim_sample.len());
         // 順序通りに初めに登録しておく
         self.token_dim_sample.iter().for_each(|token| {
             token_dim_rev_index.insert(token.clone(), Vec::new());
         });
-        for (key, doc) in raw_iter {
+        self.documents.iter().for_each(|(key, doc)| {
             doc.tf_vec.raw_iter().for_each(|(idx, _)| {
-                let token = &self.token_dim_sample[idx];
-                token_dim_rev_index
-                    .get_mut(token).unwrap()
-                    .push(key.clone());
+                token_dim_rev_index.get_with_index_mut(idx).unwrap().push(key.clone());
             });
-        }
+        });
 
         let mut instance = TFIDFVectorizer {
             documents: self.documents,

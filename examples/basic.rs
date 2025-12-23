@@ -24,12 +24,10 @@ fn main() {
     query_tokens.add_tokens(&["rust", "高速"]);
     let algorithm = SimilarityAlgorithm::CosineSimilarity;
     let mut result = vectorizer.similarity(&query_tokens, &algorithm);
-    result.sort_by_score();
+    result.sort_by_score_desc();
 
     // print result
-    result.list.iter().for_each(|(k, s, l)| {
-        println!("doc: {}, score: {}, length: {}", k, s, l);
-    });
+    println!("Search Results: \n{}", result);
     // debug
     println!("result count: {}", result.list.len());
     println!("{:?}", vectorizer);
