@@ -430,6 +430,7 @@ where N: Num
             }
         }
         zero_sp_vec.len = len;
+        zero_sp_vec.shrink_to_fit();
         zero_sp_vec
     }
 
@@ -437,7 +438,7 @@ where N: Num
     /// これは0要素を自動でスキップします
     #[inline]
     unsafe fn from_sparse_iter(iter: impl Iterator<Item = (usize, N)>, len: usize) -> Self {
-        let mut zero_sp_vec = ZeroSpVec::new();
+        let mut zero_sp_vec = ZeroSpVec::with_capacity(iter.size_hint().0);
         for (index, value) in iter {
             if value != N::zero() {
                 unsafe {
@@ -446,6 +447,7 @@ where N: Num
             }
         }
         zero_sp_vec.len = len;
+        zero_sp_vec.shrink_to_fit();
         zero_sp_vec
     }
 

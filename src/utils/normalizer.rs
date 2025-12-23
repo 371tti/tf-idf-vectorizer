@@ -1,3 +1,5 @@
+use half::f16;
+
 pub trait DeNormalizer {
     fn denormalize(&self, denormalize_num: f64) -> f64;
 }
@@ -13,6 +15,14 @@ impl DeNormalizer for f32 {
     #[inline]
     fn denormalize(&self, denormalize_num: f64) -> f64 {
         (*self as f64) * denormalize_num
+    }
+}
+
+impl DeNormalizer for f16 {
+    #[inline]
+    fn denormalize(&self, denormalize_num: f64) -> f64 {
+        const F16_TO_F64: f64 = 1.0 / 65504.0; // f16 max value
+        (self.to_f64()) * F16_TO_F64 * denormalize_num
     }
 }
 

@@ -1,4 +1,5 @@
 
+use half::f16;
 use num_traits::Num;
 
 use crate::{utils::datastruct::{map::IndexSet, vector::{ZeroSpVec, ZeroSpVecTrait}}, vectorizer::{corpus::Corpus, token::TokenFrequency}};
@@ -25,12 +26,38 @@ where
 }
 
 /// デフォルトのTF-IDFエンジン
-/// `f32`、`f64`、`u32`、`u16`、`u8`の型に対応
+/// `f16`, `f32`, `f64`, `u32`, `u16`, `u8`の型に対応
 #[derive(Debug)]
 pub struct DefaultTFIDFEngine;
 impl DefaultTFIDFEngine {
     pub fn new() -> Self {
         DefaultTFIDFEngine
+    }
+}
+
+impl<K> TFIDFEngine<f16, K> for DefaultTFIDFEngine {
+    fn idf_vec(corpus: &Corpus, token_dim_sample: &Vec<Box<str>>) -> (Vec<f16>, f64) {
+        let mut idf_vec = Vec::with_capacity(token_dim_sample.len());
+        let doc_num = corpus.get_doc_num() as f64;
+        for token in token_dim_sample.iter() {
+            let doc_freq = corpus.get_token_count(token);
+            idf_vec.push(f16::from_f64(doc_num / (doc_freq as f64 + 1.0)));
+        }
+        (idf_vec, 1.0)
+    }
+    
+    fn tf_vec(freq: &TokenFrequency, token_dim_sample: &IndexSet<Box<str>>) -> (ZeroSpVec<f16>, f64) {
+        // Build sparse TF vector: only non-zero entries are stored
+        let total_count = freq.token_sum() as f32;
+        if total_count == 0.0 { return (ZeroSpVec::new(), total_count.into()); }
+        let len = token_dim_sample.len();
+        let inv_total = 1.0f32 / total_count;
+        let mut raw = freq.iter().filter_map(|(token, count)| {
+            let idx = token_dim_sample.get_index(token)?;
+            Some((idx, f16::from_f32((count as f32) * inv_total)))
+        }).collect::<Vec<_>>();
+        raw.sort_unstable_by_key(|(idx, _)| *idx);
+        (unsafe { ZeroSpVec::from_sparse_iter(raw.into_iter(), len) }, total_count.into())
     }
 }
 
@@ -172,7 +199,7 @@ impl<K> TFIDFEngine<u16, K> for DefaultTFIDFEngine
         }).collect::<Vec<_>>();
         let len = token_dim_sample.len();
         // Second pass: normalize into quantized u16 and build sparse vector
-    let norm_div_max = (u16::MAX as f32) / max_val; // == (1/max_val) * u16::MAX
+        let norm_div_max = (u16::MAX as f32) / max_val; // == (1/max_val) * u16::MAX
         let vec_u16 = raw.into_iter()
             .map(|(idx, v)| {
                 let q = (v * norm_div_max).ceil() as u16;
