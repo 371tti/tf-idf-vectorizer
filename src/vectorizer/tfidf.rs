@@ -52,9 +52,9 @@ impl<K> TFIDFEngine<f32, K> for DefaultTFIDFEngine
         if total_count == 0.0 { return (ZeroSpVec::new(), total_count.into()); }
         let len = token_dim_sample.len();
         let inv_total = 1.0f32 / total_count;
-        let mut raw = freq.iter().map(|(token, count)| {
-            let idx = token_dim_sample.get_index(token).unwrap();
-            (idx, (count as f32) * inv_total)
+        let mut raw = freq.iter().filter_map(|(token, count)| {
+            let idx = token_dim_sample.get_index(token)?;
+            Some((idx, (count as f32) * inv_total))
         }).collect::<Vec<_>>();
         raw.sort_unstable_by_key(|(idx, _)| *idx);
         (unsafe { ZeroSpVec::from_sparse_iter(raw.into_iter(), len) }, total_count.into())
@@ -79,9 +79,9 @@ impl<K> TFIDFEngine<f64, K> for DefaultTFIDFEngine
         if total_count == 0.0 { return (ZeroSpVec::new(), total_count.into()); }
         let len = token_dim_sample.len();
         let inv_total = 1.0f64 / total_count;
-        let mut raw = freq.iter().map(|(token, count)| {
-            let idx = token_dim_sample.get_index(token).unwrap();
-            (idx, (count as f64) * inv_total)
+        let mut raw = freq.iter().filter_map(|(token, count)| {
+            let idx = token_dim_sample.get_index(token)?;
+            Some((idx, (count as f64) * inv_total))
         }).collect::<Vec<_>>();
         raw.sort_unstable_by_key(|(idx, _)| *idx);
         (unsafe { ZeroSpVec::from_sparse_iter(raw.into_iter(), len) }, total_count.into())
@@ -117,11 +117,11 @@ impl<K> TFIDFEngine<u32, K> for DefaultTFIDFEngine
         if total_count == 0.0 { return (ZeroSpVec::new(), total_count); }
         let mut max_val = 0.0f64;
         let inv_total = 1.0f64 / total_count;
-        let mut raw: Vec<(usize, f64)> = freq.iter().map(|(token, count)| {
-            let idx = token_dim_sample.get_index(token).unwrap();
+        let mut raw: Vec<(usize, f64)> = freq.iter().filter_map(|(token, count)| {
+            let idx = token_dim_sample.get_index(token)?;
             let v = (count as f64) * inv_total;
             max_val = max_val.max(v);
-            (idx, v)
+            Some((idx, v))
         }).collect::<Vec<_>>();
         let len = token_dim_sample.len();
         let mul_norm = (u32::MAX as f64) / max_val; // == (1/max_val) * u32::MAX
@@ -164,11 +164,11 @@ impl<K> TFIDFEngine<u16, K> for DefaultTFIDFEngine
         // First pass: compute raw tf values and track max
         let mut max_val = 0.0f32;
         let div_total = (1.0 / total_count) as f32;
-        let raw = freq.iter().map(|(token, count)| {
-            let idx = token_dim_sample.get_index(token).unwrap();
+        let raw = freq.iter().filter_map(|(token, count)| {
+            let idx = token_dim_sample.get_index(token)?;
             let v = (count as f32) * div_total;
             max_val = max_val.max(v);
-            (idx, v)
+            Some((idx, v))
         }).collect::<Vec<_>>();
         let len = token_dim_sample.len();
         // Second pass: normalize into quantized u16 and build sparse vector
@@ -214,11 +214,11 @@ impl<K> TFIDFEngine<u8, K> for DefaultTFIDFEngine
         let total_count = total_count_f64 as f32;
         let mut max_val = 0.0f32;
         let inv_total = 1.0f32 / total_count;
-        let raw = freq.iter().map(|(token, count)| {
-            let idx = token_dim_sample.get_index(token).unwrap();
+        let raw = freq.iter().filter_map(|(token, count)| {
+            let idx = token_dim_sample.get_index(token)?;
             let v = (count as f32) * inv_total;
             max_val = max_val.max(v);
-            (idx, v)
+            Some((idx, v))
         }).collect::<Vec<_>>();
         let len = token_dim_sample.len();
         if max_val == 0.0 { return (ZeroSpVec::new(), total_count_f64); }
