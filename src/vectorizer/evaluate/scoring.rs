@@ -134,7 +134,7 @@ where
     /// for each token in freq, get the list of document indices containing that token
     fn list_of_contains_docs(&self, freq: &TokenFrequency) -> Vec<usize> {
         freq.token_set_ref_str().iter().flat_map(|&token| {
-            self.token_dim_rev_index.get(&Box::from(token)).map(|keys| {
+            self.token_dim_rev_index.get(token).map(|keys| {
                 keys.iter().filter_map(|key| {
                     self.documents.get_index(key)
                 }).collect::<Vec<usize>>()
