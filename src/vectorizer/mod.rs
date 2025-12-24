@@ -29,7 +29,7 @@ where
     /// Corpus reference
     pub corpus_ref: Arc<Corpus>,
     /// IDF Vector
-    pub idf_cache: IDFVector<N>,
+    pub idf_cache: IDFVector,
     _marker: std::marker::PhantomData<E>,
 }
 
@@ -71,12 +71,10 @@ where
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct IDFVector<N>
-where
-    N: Num,
+pub struct IDFVector
 {
     /// IDF Vector it is not sparse because it is mostly filled
-    pub idf_vec: Vec<N>,
+    pub idf_vec: Vec<f32>,
     /// denormalize number for idf
     pub denormalize_num: f64,
     /// latest entropy
@@ -85,9 +83,7 @@ where
     pub doc_num: u64,
 }
 
-impl <N> IDFVector<N>
-where
-    N: Num,
+impl IDFVector
 {
     pub fn new() -> Self {
         Self {
@@ -219,8 +215,8 @@ where
             let mut token_freq = TokenFrequency::new();
             tf_vec.tf_vec.raw_iter().for_each(|(idx, val)| {
                 if let Some(token) = self.token_dim_rev_index.get_key_with_index(idx) {
-                    let val_f64: f64 = (*val).into();
-                    let token_num: f64 = tf_vec.token_sum.denormalize(tf_vec.denormalize_num) * val_f64;
+                    let val_f64 = (*val).into();
+                    let token_num = tf_vec.token_sum.denormalize(tf_vec.denormalize_num) as f64 * val_f64;
                     token_freq.set_token_count(token, token_num as u64);
                 } // out of range is ignored
             });
@@ -255,7 +251,7 @@ where
 
     /// add document to corpus
     /// update the referenced corpus
-    fn add_corpus(&mut self, doc: &TokenFrequency) {
+    fn add_corpus(&self, doc: &TokenFrequency) {
         // add document to corpus
         self.corpus_ref.add_set(&doc.token_set_ref_str());
     }

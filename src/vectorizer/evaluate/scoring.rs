@@ -292,15 +292,15 @@ where
                 score: {
                     let mut cut_down = 0;
                     tf.raw_iter().map(|(idx, val)| {
-                        let idf: f64 = self.idf_cache.idf_vec.get(idx).copied().unwrap_or(N::zero()).denormalize(self.idf_cache.denormalize_num);
+                        let idf = self.idf_cache.idf_vec.get(idx).copied().unwrap_or(0.0).denormalize(self.idf_cache.denormalize_num);
                         let tf2 = doc.tf_vec.raw_get_with_cut_down(idx, cut_down).map(|v| {
                             cut_down = v.index + 1; // Update cut_down to skip processed indices
                             v.value
                         }).copied().unwrap_or(N::zero()).denormalize(doc.denormalize_num);
-                        let tf1: f64 = val.denormalize(tf_denormalize_num);
+                        let tf1 = val.denormalize(tf_denormalize_num);
                         // Dot product calculation
-                        tf1 * tf2 * (idf * idf)
-                    }).sum::<f64>()
+                        tf1 as f64 * tf2 as f64 * (idf as f64 * idf as f64)
+                    }).sum::<_>()
                 },
                 doc_len: doc.token_sum
             }
@@ -319,16 +319,16 @@ where
             let mut b_it = tf_2.fuse();
             let mut a_next = a_it.next();
             let mut b_next = b_it.next();
-            let mut norm_a = 0_f64;
-            let mut norm_b = 0_f64;
-            let mut dot = 0_f64;
+            let mut norm_a = 0_f32;
+            let mut norm_b = 0_f32;
+            let mut dot = 0_f32;
             // helper closure to fetch idf weight (denormalized). Missing indices get zero.
-            let idf_w = |i: usize| -> f64 {
+            let idf_w = |i: usize| -> f32 {
                 self.idf_cache
                     .idf_vec
                     .get(i)
                     .copied()
-                    .unwrap_or(N::zero())
+                    .unwrap_or(0.0)
                     .denormalize(self.idf_cache.denormalize_num)
             };
             while let (Some((ia, va)), Some((ib, vb))) = (a_next, b_next) {
@@ -368,7 +368,7 @@ where
             let norm_a = norm_a.sqrt();
             let norm_b = norm_b.sqrt();
             // Zero division safety with f64::EPSILON
-            let score = dot / (norm_a * norm_b + f64::EPSILON);
+            let score = dot as f64 / (norm_a as f64 * norm_b as f64 + f64::EPSILON);
             HitEntry {
                 key: key.deref().clone(),
                 score,
@@ -392,11 +392,11 @@ where
                 score: {
                     let len_p = doc.token_sum as f64 * rev_avg_l;
                     tf.raw_iter().map(|(idx, _qtf)| {
-                        let idf: f64 = self.idf_cache.idf_vec.get(idx).copied().unwrap_or(N::zero()).denormalize(self.idf_cache.denormalize_num).ln();
-                        let dtf: f64 = doc.tf_vec.get(idx).copied().unwrap_or(N::zero()).denormalize(doc.denormalize_num);
+                        let idf = self.idf_cache.idf_vec.get(idx).copied().unwrap_or(0.0).denormalize(self.idf_cache.denormalize_num).ln();
+                        let dtf = doc.tf_vec.get(idx).copied().unwrap_or(N::zero()).denormalize(doc.denormalize_num);
                         // BM25 scoring formula
-                        idf * ((dtf * k1_p) / (dtf + k1 * (1.0 - b + (b * len_p))))
-                    }).sum::<f64>()
+                        idf as f64 * ((dtf as f64 * k1_p) / (dtf as f64 + k1 * (1.0 - b + (b * len_p))))
+                    }).sum::<_>()
                 },
                 doc_len: doc.token_sum
             }

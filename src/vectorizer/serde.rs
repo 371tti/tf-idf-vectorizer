@@ -23,7 +23,7 @@ where
     pub token_dim_sample: Vec<Box<str>>,
     /// IDF vector
     #[serde(default, skip_serializing, skip_deserializing)]
-    pub idf: Option<IDFVector<N>>,
+    pub idf: Option<IDFVector>,
     #[serde(default, skip_serializing, skip_deserializing)]
     _marker: std::marker::PhantomData<E>,
 }
