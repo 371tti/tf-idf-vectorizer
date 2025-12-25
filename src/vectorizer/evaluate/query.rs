@@ -150,11 +150,57 @@ where
         }
     }
 
-    pub fn build_with_freq(self, order: OrderDocIdx, freq: TokenFrequency) -> Query {
+    pub fn build_with_freq<F>(self, order: F, freq: TokenFrequency) -> Query 
+    where 
+        F: FnOnce(&QueryBuilder<'a, K>) -> OrderDocIdx
+    {
+        let doc_indices = self.build_ref(order(&self), &mut freq.clone()); // this freq is not used
+        Query {
+            doc_indices,
+            token_freq: freq,
+        }
+    }
+    
+    pub fn build_with_order(self, order: OrderDocIdx) -> Query 
+    where 
+        K: Clone + Eq + std::hash::Hash,
+    {
+        let mut freq = TokenFrequency::new();
+        let doc_indices = self.build_ref(order, &mut freq);
+        Query {
+            doc_indices,
+            token_freq: freq,
+        }
+    }
+
+    pub fn build_with_order_and_freq(self, order: OrderDocIdx, freq: TokenFrequency) -> Query 
+    where 
+        K: Clone + Eq + std::hash::Hash,
+    {
         let doc_indices = self.build_ref(order, &mut freq.clone()); // this freq is not used
         Query {
             doc_indices,
             token_freq: freq,
         }
+    }
+}
+
+pub mod q {
+    use crate::vectorizer::evaluate::query::OrderDocIdx;
+
+    pub fn token(token: &str) -> OrderDocIdx {
+        OrderDocIdx::Nop(Box::from(token))
+    }
+
+    pub fn not(order: OrderDocIdx) -> OrderDocIdx {
+        OrderDocIdx::Not(Box::new(order))
+    }
+
+    pub fn and(left: OrderDocIdx, right: OrderDocIdx) -> OrderDocIdx {
+        OrderDocIdx::And(Box::new(left), Box::new(right))
+    }
+
+    pub fn or(left: OrderDocIdx, right: OrderDocIdx) -> OrderDocIdx {
+        OrderDocIdx::Or(Box::new(left), Box::new(right))
     }
 }
