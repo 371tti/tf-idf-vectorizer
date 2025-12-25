@@ -21,7 +21,7 @@ fn main() {
 
     // similarity search
     let qb = vectorizer.query_builder();
-    let query = qb.build(
+    let query = qb.build(|qb|
         qb.and(
             qb.token("高速"),
             qb.or(

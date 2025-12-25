@@ -137,11 +137,12 @@ where
         }
     }
 
-    pub fn build(self, order: F) -> Query 
+    pub fn build<F>(self, order: F) -> Query 
     where 
-        F: FnOnce(OrderDocIdx) -> OrderDocIdx
+        F: FnOnce(&QueryBuilder<'a, K>) -> OrderDocIdx
     {
         let mut freq = TokenFrequency::new();
+        let order = order(&self);
         let doc_indices = self.build_ref(order, &mut freq);
         Query {
             doc_indices,
