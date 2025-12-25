@@ -25,7 +25,7 @@ where
     #[serde(default, skip_serializing, skip_deserializing)]
     pub idf: Option<IDFVector>,
     #[serde(default, skip_serializing, skip_deserializing)]
-    _marker: std::marker::PhantomData<E>,
+    pub(crate) _marker: std::marker::PhantomData<E>,
 }
 
 impl<N, K, E> TFIDFData<N, K, E>
@@ -75,9 +75,75 @@ where
     where
         S: serde::Serializer,
     {
-        let mut state = serializer.serialize_struct("TFIDFVectorizer", 2)?;
+        let mut state = serializer.serialize_struct("TFIDFVectorizer", 3)?;
         state.serialize_field("documents", &self.documents)?;
         state.serialize_field("token_dim_sample", &self.token_dim_rev_index.keys())?;
+        state.serialize_field("corpus_ref", &self.corpus_ref)?;
         state.end()
+    }
+}
+
+impl<'de, N, K, E> Deserialize<'de> for TFIDFVectorizer<N, K, E>
+where
+    N: Num + Copy + Deserialize<'de> + Into<f64> + Send + Sync,
+    K: Deserialize<'de> + Clone + Send + Sync + Eq + Hash,
+    E: TFIDFEngine<N, K> + Send + Sync,
+{
+    /// Deserialize TFIDFVectorizer.
+    /// This struct contains references, so they are excluded from deserialization.
+    /// Use `TFIDFData` for deserialization.
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct TFIDFVectorizerHelper<N, K>
+        where
+            N: Num + Copy,
+            K: Clone + Eq + Hash,
+        {
+            documents: IndexMap<KeyRc<K>, TFVector<N>>,
+            token_dim_sample: Vec<Box<str>>,
+            #[serde(default, skip_deserializing)]
+            corpus_ref: Arc<Corpus>,
+        }
+
+        let helper = TFIDFVectorizerHelper::<N, K>::deserialize(deserializer)?;
+        let mut token_dim_rev_index: IndexMap<Box<str>, Vec<KeyRc<K>>, RandomState> =
+            IndexMap::with_capacity(helper.token_dim_sample.len());
+        // 順序通りに初めに登録しておく
+        helper.token_dim_sample.iter().for_each(|token| {
+            token_dim_rev_index.insert(token.clone(), Vec::new());
+        });
+        helper.documents.iter().for_each(|(key, doc)| {
+            doc.tf_vec.raw_iter().for_each(|(idx, _)| {
+                token_dim_rev_index.get_with_index_mut(idx).unwrap().push(key.clone());
+            });
+        });
+
+        Ok(TFIDFVectorizer {
+            documents: helper.documents,
+            token_dim_rev_index,
+            corpus_ref: helper.corpus_ref,
+            idf_cache: IDFVector::new(),
+            _marker: std::marker::PhantomData,
+        })
+    }
+}
+
+impl<N, K, E> TFIDFVectorizer<N, K, E>
+where
+    N: Num + Copy + Serialize + Into<f64> + Send + Sync,
+    K: Serialize + Clone + Send + Sync + Eq + Hash,
+    E: TFIDFEngine<N, K> + Send + Sync,
+{
+    pub fn into_tfidf_data(self) -> TFIDFData<N, K, E> {
+        let token_dim_sample = self.token_dim_rev_index.keys().clone();
+        TFIDFData {
+            documents: self.documents,
+            token_dim_sample,
+            idf: None,
+            _marker: std::marker::PhantomData,
+        }
     }
 }

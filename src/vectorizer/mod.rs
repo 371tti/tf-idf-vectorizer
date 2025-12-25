@@ -7,6 +7,7 @@ pub mod evaluate;
 use std::{rc::Rc, sync::Arc};
 use std::hash::Hash;
 
+use half::f16;
 use num_traits::Num;
 use ::serde::{Deserialize, Serialize};
 
@@ -16,7 +17,7 @@ use crate::{utils::{datastruct::{vector::{ZeroSpVec, ZeroSpVecTrait}}, normalize
 pub type KeyRc<K> = Rc<K>;
 
 #[derive(Debug, Clone)]
-pub struct TFIDFVectorizer<N = f32, K = String, E = DefaultTFIDFEngine>
+pub struct TFIDFVectorizer<N = f16, K = String, E = DefaultTFIDFEngine>
 where
     N: Num + Copy + Into<f64> + Send + Sync,
     E: TFIDFEngine<N, K> + Send + Sync,

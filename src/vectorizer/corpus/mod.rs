@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::TokenFrequency;
 
 /// keep document count and token counts in a thread-safe way
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Corpus {
     /// corpus add_num
     /// for update notify

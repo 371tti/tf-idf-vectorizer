@@ -20,10 +20,18 @@ fn main() {
     vectorizer.add_doc("doc3".to_string(), &freq1);
 
     // similarity search
-    let mut query_tokens = TokenFrequency::new();
-    query_tokens.add_tokens(&["rust", "高速"]);
+    let qb = vectorizer.query_builder();
+    let query = qb.build(
+        qb.and(
+            qb.token("高速"),
+            qb.or(
+                qb.token("並列"),
+                qb.token("安全"),
+            ),
+        )
+    );
     let algorithm = SimilarityAlgorithm::CosineSimilarity;
-    let mut result = vectorizer.similarity(&query_tokens, &algorithm);
+    let mut result = vectorizer.similarity(&algorithm, &query);
     result.sort_by_score_desc();
 
     // print result

@@ -33,13 +33,13 @@ fn main() {
     // build corpus
     let corpus = Arc::new(Corpus::new());
 
-    // add documents
+    // token frequency
     let mut freq1 = TokenFrequency::new();
     freq1.add_tokens(&["rust", "高速", "並列", "rust"]);
     let mut freq2 = TokenFrequency::new();
     freq2.add_tokens(&["rust", "柔軟", "安全", "rust"]);
 
-    // build query
+    // add documents
     let mut vectorizer: TFIDFVectorizer<u16> = TFIDFVectorizer::new(corpus);    
     vectorizer.add_doc("doc1".to_string(), &freq1);
     vectorizer.add_doc("doc2".to_string(), &freq2);

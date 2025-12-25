@@ -2,7 +2,7 @@ use std::{borrow::Borrow, cmp::Ordering, fmt::{Debug, Display}, hash::Hash, ops:
 
 use num_traits::{pow::Pow, Num};
 
-use crate::{utils::{datastruct::vector::ZeroSpVecTrait, normalizer::DeNormalizer}, vectorizer::{KeyRc, TFIDFVectorizer, tfidf::TFIDFEngine, token::TokenFrequency}};
+use crate::{utils::{datastruct::vector::ZeroSpVecTrait, normalizer::DeNormalizer}, vectorizer::{KeyRc, TFIDFVectorizer, evaluate::query::{Query, QueryBuilder}, tfidf::TFIDFEngine, token::TokenFrequency}};
 use crate::vectorizer::TFVector;
 
 /// Enum for similarity algorithms used in search queries
@@ -157,17 +157,18 @@ where
     /// Calculate similarity scores based on query token frequency
     /// Uses the specified similarity algorithm
     /// Calls update_idf() to use the latest IDF vector
-    pub fn similarity(&mut self, freq: &TokenFrequency, algorithm: &SimilarityAlgorithm) -> Hits<K> {
+    pub fn similarity(&mut self, algorithm: &SimilarityAlgorithm, query: &Query) -> Hits<K> {
         self.update_idf();
-        self.similarity_uncheck_idf(freq, algorithm)
+        self.similarity_uncheck_idf(algorithm, query)
     }
 
     /// Calculate similarity scores based on query token frequency
     /// Uses the specified similarity algorithm
     /// Does not check the IDF vector (can be called with immutable reference)
     /// Call update_idf() manually if needed
-    pub fn similarity_uncheck_idf(&self, freq: &TokenFrequency, algorithm: &SimilarityAlgorithm) -> Hits<K> {
-        let doc_iter = self.optimized_iter(freq);
+    pub fn similarity_uncheck_idf(&self, algorithm: &SimilarityAlgorithm, query: &Query) -> Hits<K> {
+        let doc_iter = self.optimized_iter(query);
+        let freq = &query.token_freq;
         match algorithm {
             SimilarityAlgorithm::Contains => self.contains_docs(freq),
             SimilarityAlgorithm::Dot => self.scoring_dot(&freq, doc_iter),
@@ -200,20 +201,12 @@ where
 {
     /// contains doc index
     /// for each token in freq, get the list of document indices containing that token
-    fn list_of_contains_docs(&self, freq: &TokenFrequency) -> Vec<usize> {
-        freq.token_set_ref_str().iter().flat_map(|&token| {
-            self.token_dim_rev_index.get(token).map(|keys| {
-                keys.iter().filter_map(|key| {
-                    self.documents.get_index(key)
-                }).collect::<Vec<usize>>()
-            }).unwrap_or_else(Vec::new)
-        }).collect()
+    pub fn query_builder(&'_ self) -> QueryBuilder<'_, K> {
+        QueryBuilder::new(&self.token_dim_rev_index, &self.documents.as_index_set())
     }
 
-    fn optimized_iter<'a>(&'a self, freq: &TokenFrequency) -> OptimizedDocIter<'a, K, N, E> {
-        let mut contains_indices = self.list_of_contains_docs(freq);
-        contains_indices.sort_unstable();
-        contains_indices.dedup(); 
+    fn optimized_iter<'a>(&'a self, query: &'a Query) -> OptimizedDocIter<'a, K, N, E> {
+        let contains_indices = &query.doc_indices;
         OptimizedDocIter {
             contains_indices,
             vectorizer: self,
@@ -229,7 +222,7 @@ where
     N: Num + Copy + Into<f64> + DeNormalizer + Send + Sync,
     E: TFIDFEngine<N, K> + Send + Sync,
 {
-    contains_indices: Vec<usize>,
+    contains_indices: &'a Vec<usize>,
     vectorizer: &'a TFIDFVectorizer<N, K, E>,
     current_opt_idx: usize,
 }
@@ -271,7 +264,15 @@ where
 {
     /// Contains document indices that have at least one token in freq
     fn contains_docs(&self, freq: &TokenFrequency) -> Hits<K> {
-        let doc_indices = self.list_of_contains_docs(freq);
+        let mut doc_indices: Vec<usize> = freq.token_set_ref_str().iter().flat_map(|&token| {
+            self.token_dim_rev_index.get(token).map(|keys| {
+                keys.iter().filter_map(|key| {
+                    self.documents.get_index(key)
+                }).collect::<Vec<usize>>()
+            }).unwrap_or_else(Vec::new)
+        }).collect();
+        doc_indices.sort_unstable();
+        doc_indices.dedup();
         doc_indices.iter().map(|&idx| {
             let (key, doc) = self.documents.get_key_value_with_index(idx).unwrap();
             HitEntry {
