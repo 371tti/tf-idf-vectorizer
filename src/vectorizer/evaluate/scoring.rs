@@ -2,7 +2,7 @@ use std::{borrow::Borrow, cmp::Ordering, fmt::{Debug, Display}, hash::Hash, ops:
 
 use num_traits::{pow::Pow, Num};
 
-use crate::{utils::{datastruct::vector::ZeroSpVecTrait, normalizer::DeNormalizer}, vectorizer::{KeyRc, TFIDFVectorizer, evaluate::query::{Query, QueryBuilder}, tfidf::TFIDFEngine, token::TokenFrequency}};
+use crate::{utils::{datastruct::vector::ZeroSpVecTrait, normalizer::DeNormalizer}, vectorizer::{KeyRc, TFIDFVectorizer, evaluate::query::Query, tfidf::TFIDFEngine, token::TokenFrequency}};
 use crate::vectorizer::TFVector;
 
 /// Enum for similarity algorithms used in search queries
@@ -154,38 +154,33 @@ where
     N: Num + Copy + Into<f64> + DeNormalizer + Send + Sync,
     E: TFIDFEngine<N, K> + Send + Sync,
 {
-    /// Calculate similarity scores based on query token frequency
-    /// Uses the specified similarity algorithm
-    /// Calls update_idf() to use the latest IDF vector
-    pub fn similarity(&mut self, algorithm: &SimilarityAlgorithm, query: &Query) -> Hits<K> {
+
+    pub fn similarity(&mut self, algorithm: &SimilarityAlgorithm, freq: &TokenFrequency, query: Option<&Query>) -> Hits<K> {
         self.update_idf();
-        self.similarity_uncheck_idf(algorithm, query)
+        self.similarity_uncheck_idf(algorithm, freq, query)
     }
 
-    /// Calculate similarity scores based on query token frequency
-    /// Uses the specified similarity algorithm
-    /// Does not check the IDF vector (can be called with immutable reference)
-    /// Call update_idf() manually if needed
-    pub fn similarity_uncheck_idf(&self, algorithm: &SimilarityAlgorithm, query: &Query) -> Hits<K> {
-        let doc_iter = self.optimized_iter(query);
-        let freq = &query.token_freq;
+    pub fn similarity_uncheck_idf(&self, algorithm: &SimilarityAlgorithm, freq: &TokenFrequency, filter_query: Option<&Query>) -> Hits<K> {
+        let binding = Query::from_freq_or(freq);
+        let doc_iter = self.optimized_iter(filter_query.unwrap_or(&binding).build(&self.token_dim_rev_index, &self.documents.as_index_set()));
         match algorithm {
             SimilarityAlgorithm::Contains => self.contains_docs(freq),
-            SimilarityAlgorithm::Dot => self.scoring_dot(&freq, doc_iter),
-            SimilarityAlgorithm::CosineSimilarity => self.scoring_cosine(&freq, doc_iter),
-            SimilarityAlgorithm::BM25(k1, b) => self.scoring_bm25(&freq, *k1, *b, doc_iter),
+            SimilarityAlgorithm::Dot => self.scoring_dot(freq, doc_iter),
+            SimilarityAlgorithm::CosineSimilarity => self.scoring_cosine(freq, doc_iter),
+            SimilarityAlgorithm::BM25(k1, b) => self.scoring_bm25(freq, *k1, *b, doc_iter),
         }
     }
 
-    pub fn similarity_full_scan(&mut self, freq: &TokenFrequency, algorithm: &SimilarityAlgorithm) -> Hits<K> {
+    pub fn search(&mut self, algorithm: &SimilarityAlgorithm, query: Query) -> Hits<K> {
         self.update_idf();
-        self.similarity_full_scan_uncheck_idf(freq, algorithm)
+        self.search_uncheck_idf(algorithm, query)
     }
 
-    pub fn similarity_full_scan_uncheck_idf(&self, freq: &TokenFrequency, algorithm: &SimilarityAlgorithm) -> Hits<K> {
-        let doc_iter = self.documents.iter();
+    pub fn search_uncheck_idf(&self, algorithm: &SimilarityAlgorithm, query: Query) -> Hits<K> {
+        let freq = TokenFrequency::from(query.get_all_tokens().as_slice());
+        let doc_iter =  self.optimized_iter(query.build(&self.token_dim_rev_index, &self.documents.as_index_set()));
         match algorithm {
-            SimilarityAlgorithm::Contains => self.contains_docs(freq),
+            SimilarityAlgorithm::Contains => self.contains_docs(&freq),
             SimilarityAlgorithm::Dot => self.scoring_dot(&freq, doc_iter),
             SimilarityAlgorithm::CosineSimilarity => self.scoring_cosine(&freq, doc_iter),
             SimilarityAlgorithm::BM25(k1, b) => self.scoring_bm25(&freq, *k1, *b, doc_iter),
@@ -199,22 +194,14 @@ where
     N: Num + Copy + Into<f64> + DeNormalizer + Send + Sync,
     E: TFIDFEngine<N, K> + Send + Sync,
 {
-    /// contains doc index
-    /// for each token in freq, get the list of document indices containing that token
-    pub fn query_builder(&'_ self) -> QueryBuilder<'_, K> {
-        QueryBuilder::new(&self.token_dim_rev_index, &self.documents.as_index_set())
-    }
-
-    fn optimized_iter<'a>(&'a self, query: &'a Query) -> OptimizedDocIter<'a, K, N, E> {
-        let contains_indices = &query.doc_indices;
+    fn optimized_iter<'a>(&'a self, filter: Vec<usize>) -> OptimizedDocIter<'a, K, N, E> {
         OptimizedDocIter {
-            contains_indices,
+            contains_indices: filter,
             vectorizer: self,
             current_opt_idx: 0,
         }
     }
 }
-
 
 pub struct OptimizedDocIter<'a, K, N, E>
 where
@@ -222,7 +209,7 @@ where
     N: Num + Copy + Into<f64> + DeNormalizer + Send + Sync,
     E: TFIDFEngine<N, K> + Send + Sync,
 {
-    contains_indices: &'a Vec<usize>,
+    contains_indices: Vec<usize>,
     vectorizer: &'a TFIDFVectorizer<N, K, E>,
     current_opt_idx: usize,
 }

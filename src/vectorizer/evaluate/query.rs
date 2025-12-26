@@ -1,13 +1,16 @@
 use crate::{TokenFrequency, utils::datastruct::map::{IndexMap, IndexSet}, vectorizer::KeyRc};
 
+#[derive(Clone, Debug)]
 pub enum QueryInner {
     None,
+    All,
     Nop(Box<str>),
     Not(Box<QueryInner>),
     And(Box<QueryInner>, Box<QueryInner>),
     Or(Box<QueryInner>, Box<QueryInner>),
 }
 
+#[derive(Clone, Debug)]
 pub struct Query {
     pub(crate) inner: QueryInner,
 }
@@ -15,6 +18,10 @@ pub struct Query {
 impl Query {
     pub fn none() -> Self {
         Query { inner: QueryInner::None }
+    }
+
+    pub fn all() -> Self {
+        Query { inner: QueryInner::All }
     }
 
     pub fn token<S>(token: &S) -> Self 
@@ -64,11 +71,47 @@ impl Query {
         }
     }
 
+    pub fn get_all_tokens(&self) -> Vec<&str> {
+        let mut tokens = Vec::new();
+        Self::collect_tokens_ref(&self.inner, &mut tokens);
+        tokens
+    }
+
+    pub(crate) fn collect_tokens_ref<'a>(query: &'a QueryInner, tokens: &mut Vec<&'a str>) {
+        match query {
+            QueryInner::All => {
+                // do nothing
+            }
+            QueryInner::None => {}
+            QueryInner::Nop(token) => {
+                tokens.push(token);
+            }
+            QueryInner::Not(inner) => {
+                Self::collect_tokens_ref(inner, tokens);
+            }
+            QueryInner::And(left, right) => {
+                Self::collect_tokens_ref(left, tokens);
+                Self::collect_tokens_ref(right, tokens);
+            }
+            QueryInner::Or(left, right) => {
+                Self::collect_tokens_ref(left, tokens);
+                Self::collect_tokens_ref(right, tokens);
+            }
+        }
+    }
+
     pub(crate) fn build_ref<K>(query: &QueryInner, token_dim_rev_index: &IndexMap<Box<str>, Vec<KeyRc<K>>>, documents: &IndexSet<KeyRc<K>>) -> Vec<usize> 
     where 
         K: Eq + std::hash::Hash,
     {
         match query {
+            QueryInner::All => {
+                let mut result = Vec::with_capacity(documents.len());
+                for (idx, _) in documents.iter().enumerate() {
+                    result.push(idx);
+                }
+                result
+            }
             QueryInner::None => Vec::new(),
             QueryInner::Nop(token) => {
                 if let Some(doc_keys) = token_dim_rev_index.get(token) {
@@ -163,6 +206,9 @@ impl Query {
     where 
         K: Eq + std::hash::Hash,
     {
-        Self::build_ref(&self.inner, token_dim_rev_index, documents)
+        let mut res = Self::build_ref(&self.inner, token_dim_rev_index, documents);
+        res.sort_unstable();
+        res.dedup();
+        res
     }
 }

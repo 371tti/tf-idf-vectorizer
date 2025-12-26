@@ -99,6 +99,11 @@ pub use vectorizer::tfidf::{DefaultTFIDFEngine, TFIDFEngine};
 /// - BM25 Like: BM25に類似したスコアリング 一般的な文書検索に適しています
 pub use vectorizer::evaluate::scoring::SimilarityAlgorithm;
 
+/// Query Structure for TF-IDF Vectorizer
+/// この構造体は、TF-IDFベクトライザーで使用される検索クエリを表現します。
+/// 複雑な論理条件を組み合わせてドキュメントをフィルタリングするための柔軟な手段を提供します。
+pub use vectorizer::evaluate::query::Query;
+
 /// Search Hits and Hit Entry structures
 /// 検索結果を管理するためのデータ構造です。
 /// - `Hits`: 検索結果のリストを保持し、スコアでソートする機能などを提供します。
