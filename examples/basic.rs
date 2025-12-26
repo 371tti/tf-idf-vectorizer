@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use tf_idf_vectorizer::{Corpus, SimilarityAlgorithm, TFIDFVectorizer, TokenFrequency};
+use tf_idf_vectorizer::{Corpus, SimilarityAlgorithm, TFIDFVectorizer, TokenFrequency, vectorizer::evaluate::query::{Query, RawQuery}};
 
 fn main() {
     // build corpus
@@ -19,6 +19,7 @@ fn main() {
     vectorizer.del_doc(&"doc1".to_string());
     vectorizer.add_doc("doc3".to_string(), &freq1);
 
+    let query = Query::and(left, right)
     // similarity search
     let qb = vectorizer.query_builder();
     let query = qb.build(|qb|
