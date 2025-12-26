@@ -9,8 +9,8 @@ lang [ [en](./README.md) | ja ]
 
 ## 特徴
 - ジェネリックパラメータ (f32 / f64 / 符号なし整数など) 対応エンジン 量子化
-- 全構造体 シリアライズ / デシリアライズ (`TFIDFData`) 永続化
-- 類似度計算ユーティリティ (`SimilarityAlgorithm`, `Hits`) 検索用途
+- serde対応
+- 類似度計算ユーティリティ (`SimilarityAlgorithm`, `Hits`, `Query`) 検索用途
 - index構築処理なし 即時追加 削除 リアルタイム製
 - スレッド間安全
 - コーパス情報の分離 indexに対して差し替え可能
@@ -20,37 +20,36 @@ lang [ [en](./README.md) | ja ]
 Cargo.toml
 ```toml
 [dependencies]
-tf-idf-vectorizer = "0.7"  # 本READMEは `v0.7.x` 向け
+tf-idf-vectorizer = "0.9"  # 本READMEは `v0.9.x` 向け
 ```
 
 ## 基本的な使い方
 
 ```rust
 use std::sync::Arc;
-use tf_idf_vectorizer::{Corpus, SimilarityQuery, TFIDFVectorizer, TokenFrequency};
+
+use tf_idf_vectorizer::{Corpus, SimilarityAlgorithm, TFIDFVectorizer, TokenFrequency, vectorizer::evaluate::query::Query};
 
 fn main() {
     // build corpus
     let corpus = Arc::new(Corpus::new());
 
-    // token frequency
+    // make token frequencies
     let mut freq1 = TokenFrequency::new();
     freq1.add_tokens(&["rust", "高速", "並列", "rust"]);
     let mut freq2 = TokenFrequency::new();
     freq2.add_tokens(&["rust", "柔軟", "安全", "rust"]);
 
-    // add documents
+    // add documents to vectorizer
     let mut vectorizer: TFIDFVectorizer<u16> = TFIDFVectorizer::new(corpus);    
     vectorizer.add_doc("doc1".to_string(), &freq1);
     vectorizer.add_doc("doc2".to_string(), &freq2);
     vectorizer.del_doc(&"doc1".to_string());
     vectorizer.add_doc("doc3".to_string(), &freq1);
 
-    // similarity search
-    let mut query_tokens = TokenFrequency::new();
-    query_tokens.add_tokens(&["rust", "高速"]);
+    let query = Query::and(Query::token("rust"), Query::token("安全"));
     let algorithm = SimilarityAlgorithm::CosineSimilarity;
-    let mut result = vectorizer.similarity(&query_tokens, &algorithm);
+    let mut result = vectorizer.search(&algorithm, query);
     result.sort_by_score_desc();
 
     // print result
@@ -75,11 +74,6 @@ let data: TFIDFData = serde_json::from_str(&dump)?;
 let restored = data.into_tf_idf_vectorizer(&corpus);
 ```
 
-## 類似度検索 (概念)
-1. 入力トークンをクエリベクトル化 (SimilarityAlgorithm)
-2. 内積 / コサイン等で各ドキュメントと比較
-3. すべての結果を Hits で返却
-
 ## パフォーマンス指針
 - トークン辞書 (token_dim_sample / token_dim_set) は再構築を避けキャッシュ
 - TF スパース化でゼロ省略
@@ -96,11 +90,11 @@ let restored = data.into_tf_idf_vectorizer(&corpus);
 | TFIDFVectorizer | TF/IDF 管理と検索入口 |
 | TFIDFData | シリアライズ用中間体 |
 | DefaultTFIDFEngine | TF/IDF 計算バックエンド |
-| SimilarityAlgorithm / Hits | 検索クエリと結果 |
+| SimilarityAlgorithm / Hits / Query | 検索クエリと結果 |
 
 ## カスタマイズ
-- 数値型を f32/f64/u16/u32 などに切替
-- TFIDFEngine を差し替えて異なる重み付け方式実験
+- 数値型を f16/f32/f64/u16/u32 などに切替
+- TFIDFEngine を差し替えて異なる重み付け方式に差し替え可
 
 ## 例 (examples/)
 `cargo run --example basic` で最小例を実行。  

@@ -154,12 +154,13 @@ where
     N: Num + Copy + Into<f64> + DeNormalizer + Send + Sync,
     E: TFIDFEngine<N, K> + Send + Sync,
 {
-
+    /// High-level similarity search interface
     pub fn similarity(&mut self, algorithm: &SimilarityAlgorithm, freq: &TokenFrequency, query: Option<&Query>) -> Hits<K> {
         self.update_idf();
         self.similarity_uncheck_idf(algorithm, freq, query)
     }
 
+    /// High-level similarity search interface without IDF update check
     pub fn similarity_uncheck_idf(&self, algorithm: &SimilarityAlgorithm, freq: &TokenFrequency, filter_query: Option<&Query>) -> Hits<K> {
         let binding = Query::from_freq_or(freq);
         let doc_iter = self.optimized_iter(filter_query.unwrap_or(&binding).build(&self.token_dim_rev_index, &self.documents.as_index_set()));
@@ -171,11 +172,13 @@ where
         }
     }
 
+    /// High-level search interface
     pub fn search(&mut self, algorithm: &SimilarityAlgorithm, query: Query) -> Hits<K> {
         self.update_idf();
         self.search_uncheck_idf(algorithm, query)
     }
 
+    /// High-level search interface without IDF update check
     pub fn search_uncheck_idf(&self, algorithm: &SimilarityAlgorithm, query: Query) -> Hits<K> {
         let freq = TokenFrequency::from(query.get_all_tokens().as_slice());
         let doc_iter =  self.optimized_iter(query.build(&self.token_dim_rev_index, &self.documents.as_index_set()));
