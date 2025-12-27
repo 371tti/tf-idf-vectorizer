@@ -1,125 +1,195 @@
-/// This crate is a Document Analysis Engine using a TF-IDF Vectorizer.
+//! # TF-IDF Vectorizer
+//!
+//! This crate provides a **document analysis engine** based on a highly customizable
+//! **TF-IDF vectorizer**.
+//!
+//! It is designed for:
+//! - Full-text search engines
+//! - Document similarity analysis
+//! - Large-scale corpus processing
+//!
+//! ## Architecture Overview
+//!
+//! The crate is composed of the following core concepts:
+//!
+//! - **Corpus**: Global document-frequency statistics (IDF base)
+//! - **TokenFrequency**: Per-document token statistics (TF base)
+//! - **TFIDFVectorizer**: Converts documents into sparse TF-IDF vectors
+//! - **TFIDFEngine**: Pluggable TF / IDF calculation strategy
+//! - **SimilarityAlgorithm**: Multiple scoring algorithms (Cosine, Dot, BM25-like)
+//!
+//! ## Example
+//!
+//! ```rust
+//! use std::sync::Arc;
+//! 
+//! use tf_idf_vectorizer::{Corpus, SimilarityAlgorithm, TFIDFVectorizer, TokenFrequency, vectorizer::evaluate::query::Query};
+//! 
+//! fn main() {
+//!     // build corpus
+//!     let corpus = Arc::new(Corpus::new());
+//! 
+//!     // make token frequencies
+//!     let mut freq1 = TokenFrequency::new();
+//!     freq1.add_tokens(&["rust", "高速", "並列", "rust"]);
+//!     let mut freq2 = TokenFrequency::new();
+//!     freq2.add_tokens(&["rust", "柔軟", "安全", "rust"]);
+//! 
+//!     // add documents to vectorizer
+//!     let mut vectorizer: TFIDFVectorizer<u16> = TFIDFVectorizer::new(corpus);    
+//!     vectorizer.add_doc("doc1".to_string(), &freq1);
+//!     vectorizer.add_doc("doc2".to_string(), &freq2);
+//!     vectorizer.del_doc(&"doc1".to_string());
+//!     vectorizer.add_doc("doc3".to_string(), &freq1);
+//! 
+//!     let query = Query::and(Query::token("rust"), Query::token("安全"));
+//!     let algorithm = SimilarityAlgorithm::CosineSimilarity;
+//!     let mut result = vectorizer.search(&algorithm, query);
+//!     result.sort_by_score_desc();
+//! 
+//!     // print result
+//!     println!("Search Results: \n{}", result);
+//!     // debug
+//!     println!("result count: {}", result.list.len());
+//!     println!("{:?}", vectorizer);
+//! }
+//! ```
+//!
+//! ## Thread Safety
+//!
+//! - `Corpus` is thread-safe and can be shared across vectorizers
+//! - Designed for parallel indexing and search workloads
+//!
+//! ## Serialization
+//!
+//! - `TFIDFVectorizer` and `TFIDFData` support serialization
+//! - `TFIDFData` does **not** hold a `Corpus` reference and is suitable for storage
+
 pub mod vectorizer;
 pub mod utils;
 
+#[doc = "## Core Vectorizer"]
 /// TF-IDF Vectorizer
+///
 /// The top-level struct of this crate, providing the main TF-IDF vectorizer features.
+///
 /// It converts a document collection into TF-IDF vectors and supports similarity
 /// computation and search functionality.
 ///
-/// Internally, it holds:
-/// - The corpus vocabulary
-/// - Sparse TF vectors for each document
-/// - A token map for TF vectors
-/// - An IDF vector cache
-/// - A TF-IDF calculation engine
-/// - An inverted index of documents
+/// ### Internals
+/// - Corpus vocabulary
+/// - Sparse TF vectors per document
+/// - Token index mapping
+/// - Cached IDF vector
+/// - Pluggable TF-IDF engine
+/// - Inverted document index
 ///
-/// `TFIDFVectorizer<N, K, E>` has the following generic parameters:
-/// - `N`: Vector parameter type (e.g., f32, f64, u8, u16, u32)
-/// - `K`: Document key type (e.g., String, usize)
-/// - `E`: TF-IDF calculation engine type (e.g., DefaultTFIDFEngine)
+/// ### Type Parameters
+/// - `N`: Vector parameter type (e.g., `f32`, `f64`, `u16`)
+/// - `K`: Document key type (e.g., `String`, `usize`)
+/// - `E`: TF-IDF calculation engine
 ///
-/// When creating an instance, you must pass a corpus reference as `Arc<Corpus>`.
-/// The `Corpus` can optionally be replaced, and can be shared among multiple
-/// `TFIDFVectorizer` instances.
+/// ### Notes
+/// - Requires an `Arc<Corpus>` on construction
+/// - `Corpus` can be shared across multiple vectorizers
 ///
-/// # Serialization
-/// Supported.
-/// In this case, the `Corpus` reference is included as well.
-/// You can also use `TFIDFData` as a serializable data structure.
-/// `TFIDFData` does not hold a `Corpus` reference, so it can be stored separately
-/// from the `Corpus`.
+/// ### Serialization
+/// Supported.  
+/// Serialized data includes the `Corpus` reference.
 ///
-/// # Deserialization
-/// Supported, including data expansion/unpacking.
+/// For corpus-independent storage, use [`TFIDFData`].
 pub use vectorizer::TFIDFVectorizer;
 
-/// TF-IDF Vectorizer Data Structure for Serialization
-/// This struct provides a serializable data structure that does not hold a `Corpus`
-/// reference (unlike `TFIDFVectorizer`).
-/// You can convert it into `TFIDFVectorizer` by passing an `Arc<Corpus>` via
-/// `into_tf_idf_vectorizer`.
+#[doc = "## Serializable Data Structures"]
+/// TF-IDF Vectorizer Data Structure (Corpus-free)
 ///
-/// Compared to `TFIDFVectorizer`, it has a smaller footprint.
+/// A compact, serializable representation of a TF-IDF vectorizer.
 ///
-/// # Serialization
+/// Unlike [`TFIDFVectorizer`], this struct does **not** hold a `Corpus` reference.
+/// It can be converted back into a `TFIDFVectorizer` by providing an `Arc<Corpus>`.
+///
+/// ### Use Cases
+/// - Persistent storage
+/// - Network transfer
+/// - Memory-efficient snapshots
+///
+/// ### Serialization
 /// Supported.
 ///
-/// # Deserialization
-/// Supported, including data expansion/unpacking.
+/// ### Deserialization
+/// Supported, including internal data expansion.
 pub use vectorizer::serde::TFIDFData;
 
+#[doc = "## Corpus & Statistics"]
 /// Corpus for TF-IDF Vectorizer
-/// This struct manages a collection of documents.
-/// It does not store document text or IDs; it only manages:
-/// - The number of documents
-/// - The number of documents in which each token appears across the corpus
 ///
-/// It is used as the base data for IDF (Inverse Document Frequency) calculation.
+/// Manages global document-frequency statistics required for IDF calculation.
 ///
-/// When creating a `TFIDFVectorizer`, you must pass a corpus reference as
-/// `Arc<Corpus>`.
-/// `Corpus` is thread-safe and can be shared among multiple `TFIDFVectorizer`
-/// instances.
+/// This struct does **not** store document text or identifiers.
+/// It only tracks:
+/// - Total number of documents
+/// - Number of documents containing each token
 ///
-/// For statistics/analysis, `TokenFrequency` may be more suitable.
-/// You can convert to `TokenFrequency` if needed, but note that it represents
-/// fundamentally different statistical meaning.
+/// ### Thread Safety
+/// - Fully thread-safe
+/// - Implemented using `DashMap` and atomics
 ///
-/// # Thread Safety
-/// This struct is thread-safe and can be accessed concurrently from multiple threads.
-/// Implemented using DashMap and atomics.
+/// ### Notes
+/// - Must be shared via `Arc<Corpus>`
+/// - Can be reused across multiple vectorizers
 pub use vectorizer::corpus::Corpus;
 
-/// Token Frequency structure
-/// A struct for analyzing/managing token occurrence frequency within a document.
-/// It manages:
-/// - The count of occurrences of each token
-/// - The total number of tokens in the document
+/// Token Frequency Structure
 ///
-/// Used as base data for TF (Term Frequency) calculation.
+/// Manages per-document token statistics used for TF calculation.
 ///
-/// Provides rich functionality such as adding tokens, setting/getting counts,
-/// and retrieving statistics.
+/// Tracks:
+/// - Token occurrence counts
+/// - Total token count in the document
+///
+/// ### Use Cases
+/// - TF calculation
+/// - Token-level statistics
 pub use vectorizer::token::TokenFrequency;
 
-/// TF IDF Calculation Engine Trait
-/// A trait that defines the behavior of a TF-IDF calculation engine.
+#[doc = "## TF-IDF Engines"]
+/// TF-IDF Calculation Engine Trait
 ///
-/// By implementing this trait, you can plug different TF-IDF calculation strategies
-/// into `TFIDFVectorizer<E>`.
-/// A default implementation, `DefaultTFIDFEngine`, is provided and performs
-/// textbook-style TF-IDF calculation.
+/// Defines the behavior of a TF-IDF calculation engine.
 ///
-/// The default implementation supports the following parameter quantizations:
-/// - f16
-/// - f32
-/// - f64
-/// - u8
-/// - u16
-/// - u32
+/// Custom engines can be implemented and plugged into
+/// [`TFIDFVectorizer`].
+///
+/// A default implementation, [`DefaultTFIDFEngine`], is provided.
+///
+/// ### Supported Numeric Types
+/// - `f16`
+/// - `f32`
+/// - `f64`
+/// - `u8`
+/// - `u16`
+/// - `u32`
 pub use vectorizer::tfidf::{DefaultTFIDFEngine, TFIDFEngine};
 
-/// Similarity Algorithm for TF-IDF Vectorizer
-/// The `SimilarityAlgorithm` enum defines similarity-scoring algorithms used by the
-/// TF-IDF vectorizer.
+#[doc = "## Similarity & Search"]
+/// Similarity Algorithm
 ///
-/// Currently, the following algorithms are supported:
-/// - Contains: simple containment check (whether it contains the token)
-/// - Dot: dot product (suitable for long-document search)
-/// - Cosine Similarity: cosine similarity (suitable for proper noun search)
-/// - BM25 Like: BM25-like scoring (suitable for general document search)
+/// Defines scoring algorithms used during search.
+///
+/// ### Variants
+/// - `Contains`: Token containment check
+/// - `Dot`: Dot product (long documents)
+/// - `Cosine`: Cosine similarity (proper nouns)
+/// - `BM25Like`: BM25-inspired scoring
 pub use vectorizer::evaluate::scoring::SimilarityAlgorithm;
 
-/// Query Structure for TF-IDF Vectorizer
-/// Represents a search query used by the TF-IDF vectorizer.
-/// It provides a flexible way to filter documents by combining complex logical
-/// conditions.
+/// Query Structure
+///
+/// Represents a search query with logical filtering conditions.
 pub use vectorizer::evaluate::query::Query;
 
-/// Search Hits and Hit Entry structures
-/// Data structures for managing search results.
-/// - `Hits`: holds a list of search results and provides features such as sorting by score
-/// - `HitEntry`: represents a single result entry, containing the document key and score
+/// Search Results
+///
+/// - `Hits`: A collection of ranked search results
+/// - `HitEntry`: A single search result entry
 pub use vectorizer::evaluate::scoring::{Hits, HitEntry};
