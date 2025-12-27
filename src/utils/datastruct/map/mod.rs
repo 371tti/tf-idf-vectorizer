@@ -396,6 +396,10 @@ where
         }
     }
 
+    pub fn capacity(&self) -> usize {
+        self.keys.capacity()
+    }
+
     /// hash util
     #[inline]
     fn hash_key<Q: ?Sized>(&self, key: &Q) -> u64 

@@ -154,18 +154,20 @@ where N: Num
     fn reserve(&mut self, additional: usize) {
         let new_cap = self.nnz + additional;
         if new_cap > self.buf.cap {
+            let old_cap = self.buf.cap;
             self.buf.cap = new_cap;
-            self.buf.re_cap_set();
+            self.buf.re_cap_set(old_cap);
         }
     }
 
     /// capの最適化 未使用領域を解放
     #[inline]
     fn shrink_to_fit(&mut self) {
-        if self.len < self.buf.cap {
-            let new_cap = self.nnz;
-            self.buf.cap = new_cap;
-            self.buf.re_cap_set();
+        // len ではなく nnz で判定する
+        if self.nnz < self.buf.cap {
+            let old_cap = self.buf.cap;
+            self.buf.cap = self.nnz;
+            self.buf.re_cap_set(old_cap);
         }
     }
 
@@ -231,19 +233,25 @@ where N: Num
 
     #[inline]
     fn pop(&mut self) -> Option<N> {
-        if self.nnz == 0 {
+        if self.len == 0 {
             return None;
         }
-        let pop_element = if self.nnz == self.len {
+
+        let last_logical_index = self.len - 1;
+
+        // 末尾が実際に格納されているか（ind[nnz-1] == len-1）を見る
+        let has_last = self.nnz > 0
+            && unsafe { *self.ind_ptr().add(self.nnz - 1) as usize } == last_logical_index;
+
+        let popped = if has_last {
             self.nnz -= 1;
-            unsafe {
-                Some(ptr::read(self.val_ptr().add(self.nnz)))
-            }
+            unsafe { Some(ptr::read(self.val_ptr().add(self.nnz))) }
         } else {
             Some(N::zero())
         };
+
         self.len -= 1;
-        pop_element
+        popped
     }
 
     #[inline]
@@ -759,21 +767,36 @@ where N: Num
     }
 
     #[inline]
-    fn re_cap_set(&mut self) {
+    fn re_cap_set(&mut self, old_cap: usize) {
         unsafe {
+            // ZST/未確保はrealloc対象外
+            debug_assert!(old_cap != 0 && old_cap != usize::MAX);
+            debug_assert!(self.cap != usize::MAX);
+
             let val_elem_size = mem::size_of::<N>();
             let ind_elem_size = mem::size_of::<u32>();
 
             let t_align = mem::align_of::<N>();
             let usize_align = mem::align_of::<u32>();
 
-            let new_val_layout = Layout::from_size_align(val_elem_size * self.cap, t_align).expect("Failed to create memory layout");
-            let new_ind_layout = Layout::from_size_align(ind_elem_size * self.cap, usize_align).expect("Failed to create memory layout");
-            let new_val_ptr = realloc(self.val_ptr.as_ptr() as *mut u8, new_val_layout, val_elem_size * self.cap) as *mut N;
-            let new_ind_ptr = realloc(self.ind_ptr.as_ptr() as *mut u8, new_ind_layout, ind_elem_size * self.cap) as *mut u32;
+            // reallocの第2引数は古いレイアウト
+            let old_val_layout =
+                Layout::from_size_align(val_elem_size * old_cap, t_align).expect("old val layout");
+            let old_ind_layout =
+                Layout::from_size_align(ind_elem_size * old_cap, usize_align).expect("old ind layout");
+
+            let new_val_size = val_elem_size * self.cap;
+            let new_ind_size = ind_elem_size * self.cap;
+
+            let new_val_ptr =
+                realloc(self.val_ptr.as_ptr() as *mut u8, old_val_layout, new_val_size) as *mut N;
+            let new_ind_ptr =
+                realloc(self.ind_ptr.as_ptr() as *mut u8, old_ind_layout, new_ind_size) as *mut u32;
+
             if new_val_ptr.is_null() || new_ind_ptr.is_null() {
                 oom();
             }
+
             self.val_ptr = NonNull::new_unchecked(new_val_ptr);
             self.ind_ptr = NonNull::new_unchecked(new_ind_ptr);
         }

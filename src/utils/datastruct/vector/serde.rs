@@ -166,7 +166,7 @@ where
                                 if old_cap == 0 {
                                     vec.buf.cap_set();
                                 } else {
-                                    vec.buf.re_cap_set();
+                                    vec.buf.re_cap_set(old_cap);
                                 }
                             }
                             nnz = Some(v);
