@@ -7,8 +7,14 @@ queryでは`&` `|` `!` `[]` が使えるようにしてます。
 sudachi tokenizerを用い、C modeでtokenizeしたのち それらの語彙をさらにA modeでtokenizeしています。
 ```
  .\target\release\doc-search-test.exe index --docs .\wikipedia_all_articles_fast\wikipedia_all_articles_fast\
-  2340391 files | 00:00:04 | 574,720.5244/s files/s                                                                                                                                                                                                                                                                                                                                                                                                                                         \ [01:03:29] ########...######## 2340391/2340391 (100%) idx 614/s ETA 00:00:00
-done                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        ⠁ saving corpus...                                                                                                                                                                                                                                                                                                                                                                                                                                                                          Indexing completed: 2339298 docs in 4003.84 sec (584.26 docs/sec)
+  2340391 files | 00:00:04 | 574,720.5244/s files/s 
+
+\ [01:03:29] ########...######## 2340391/2340391 (100%) idx 614/s ETA 00:00:00
+done
+
+⠁ saving corpus...
+
+Indexing completed: 2339298 docs in 4003.84 sec (584.26 docs/sec)
 ```
 
 ## Test
