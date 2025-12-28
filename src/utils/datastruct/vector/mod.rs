@@ -22,6 +22,7 @@ where N: Num + Copy
     unsafe fn val_ptr(&self) -> *mut N;
     /// Power Jump Search
     /// Returns Some((value, sp_vec_raw_ind)) if found, None otherwise
+    #[inline(always)]
     unsafe fn power_jump_search(&self, target: u32, start: usize) -> Option<(N, usize)>
     where
         N: Copy,
@@ -82,6 +83,7 @@ where N: Num + Copy
             None
         }
     }
+    #[inline(always)]
     fn get_power_jump(&self, target: u32, cut_down: &mut usize) -> Option<N>
     where
         N: Copy,
@@ -95,9 +97,11 @@ where N: Num + Copy
             }
         }
     }
+    #[inline(always)]
     fn as_val_slice(&self) -> &[N] {
         unsafe { core::slice::from_raw_parts(self.val_ptr(), self.nnz() as usize) }
     }
+    #[inline(always)]
     fn as_ind_slice(&self) -> &[u32] {
         unsafe { core::slice::from_raw_parts(self.ind_ptr(), self.nnz() as usize) }
     }
@@ -110,6 +114,7 @@ where N: Num + Copy
         Self::low_new()
     }
 
+    #[inline]
     fn new_with_capacity(capacity: u32) -> Self {
         let mut vec = Self::low_new();
         if capacity != 0 {
@@ -125,7 +130,7 @@ where N: Num + Copy
         }
     }
 
-    #[inline]
+    #[inline(always)]
     fn raw_iter(&self) -> RawTFVectorIter<'_, N> {
         RawTFVectorIter {
             vec: self,
@@ -134,20 +139,22 @@ where N: Num + Copy
         }
     }
 
-    #[inline]
+    #[inline(always)]
     fn nnz(&self) -> u32 {
         self.nnz
     }
 
-    #[inline]
+    #[inline(always)]
     fn len(&self) -> u32 {
         self.len
     }
 
+    #[inline(always)]
     fn term_sum(&self) -> u32 {
         self.term_sum
     }
 
+    #[inline(always)]
     unsafe fn from_vec(mut ind_vec: Vec<u32>, mut val_vec: Vec<N>, len: u32, term_sum: u32) -> Self {
         debug_assert_eq!(
             ind_vec.len(),
@@ -186,10 +193,12 @@ where N: Num + Copy
         }
     }
 
+    #[inline(always)]
     unsafe fn ind_ptr(&self) -> *mut u32 {
         self.inds.as_ptr()
     }
 
+    #[inline(always)]
     unsafe fn val_ptr(&self) -> *mut N {
         self.vals.as_ptr()
     }

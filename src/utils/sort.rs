@@ -6,6 +6,7 @@ use core::mem;
 /// - Requires `N: Copy` for speed (good for f16/f32 etc.)
 ///
 /// Complexity: 4 passes, each O(n + 256)
+#[inline(always)]
 pub fn radix_sort_u32_soa<N: Copy>(inds: &mut [u32], vals: &mut [N]) {
     assert_eq!(inds.len(), vals.len());
     let n = inds.len();
@@ -77,7 +78,7 @@ pub fn radix_sort_u32_soa<N: Copy>(inds: &mut [u32], vals: &mut [N]) {
 }
 
 /// Tiny insertion sort for small n (SoA).
-#[inline]
+#[inline(always)]
 fn insertion_sort_u32_soa<N: Copy>(inds: &mut [u32], vals: &mut [N]) {
     let n = inds.len();
     for i in 1..n {

@@ -68,7 +68,7 @@ impl TFIDFEngine<f16> for DefaultTFIDFEngine {
     //     }
     //     (idf_vec, 1.0)
     // }
-    
+    #[inline]
     fn tf_vec(freq: &TermFrequency, term_dim_sample: &IndexSet<Box<str>>) -> TFVector<f16> {
         // Build sparse TF vector: only non-zero entries are stored
         let term_sum = freq.term_sum() as u32;
@@ -85,6 +85,7 @@ impl TFIDFEngine<f16> for DefaultTFIDFEngine {
         unsafe { TFVector::from_vec(ind_vec, val_vec, len as u32, term_sum) }
     }
 
+    #[inline(always)]
     fn tf_denorm(val: f16) -> u32 {
         val.to_f32().pow(2) as u32
     }
@@ -101,7 +102,7 @@ impl TFIDFEngine<f32> for DefaultTFIDFEngine
     //     }
     //     (idf_vec, 1.0)
     // }
-
+    #[inline]
     fn tf_vec(freq: &TermFrequency, term_dim_sample: &IndexSet<Box<str>>) -> TFVector<f32> {
         // Build sparse TF vector: only non-zero entries are stored
         let term_sum = freq.term_sum() as u32;
@@ -117,6 +118,7 @@ impl TFIDFEngine<f32> for DefaultTFIDFEngine
         unsafe { TFVector::from_vec(ind_vec, val_vec, len as u32, term_sum) }
     }
 
+    #[inline(always)]
     fn tf_denorm(val: f32) -> u32 {
         val as u32
     }
@@ -144,7 +146,7 @@ impl TFIDFEngine<u32> for DefaultTFIDFEngine
     //     max
     //     )
     // }
-
+    #[inline]
     fn tf_vec(freq: &TermFrequency, term_dim_sample: &IndexSet<Box<str>>) -> TFVector<u32> {
         // Build sparse TF vector: only non-zero entries are stored
         let term_sum = freq.term_sum() as u32;
@@ -160,6 +162,7 @@ impl TFIDFEngine<u32> for DefaultTFIDFEngine
         unsafe { TFVector::from_vec(ind_vec, val_vec, len as u32, term_sum) }
     }
 
+    #[inline(always)]
     fn tf_denorm(val: u32) -> u32 {
         val
     }
@@ -187,7 +190,7 @@ impl TFIDFEngine<u16> for DefaultTFIDFEngine
     //     max
     //     )
     // }
-
+    #[inline]
     fn tf_vec(freq: &TermFrequency, term_dim_sample: &IndexSet<Box<str>>) -> TFVector<u16> {
         // Build sparse TF vector: only non-zero entries are stored
         let term_sum = freq.term_sum() as u32;
@@ -203,6 +206,7 @@ impl TFIDFEngine<u16> for DefaultTFIDFEngine
         unsafe { TFVector::from_vec(ind_vec, val_vec, len as u32, term_sum) }
     }
 
+    #[inline(always)]
     fn tf_denorm(val: u16) -> u32 {
         val as u32
     }

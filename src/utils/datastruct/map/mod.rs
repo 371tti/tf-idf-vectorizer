@@ -2,6 +2,7 @@ use hashbrown::HashTable;
 use std::borrow::Borrow;
 use std::fmt::Debug;
 use std::hash::Hasher;
+use std::iter::FusedIterator;
 
 pub mod serde;
 
@@ -11,7 +12,13 @@ pub mod serde;
 /// # Safety
 /// table, hashes は table_* メソッドが責任をもつこと 更新とか
 /// 
-/// いじんないじんないじんな いじったならあらゆるUnitTest書いて通せ
+/// O(1) operations for:
+/// - key -> value
+/// - key -> index
+/// - index -> key
+/// - index -> value
+/// - insert
+/// - swap_remove
 #[derive(Clone, Debug)]
 pub struct IndexMap<K, V, S = ahash::RandomState> {
     values: Vec<V>,
@@ -82,6 +89,7 @@ where
         IndexMapIter {
             map: self,
             index: 0,
+            end: self.len(),
         }
     }
 
@@ -273,41 +281,83 @@ where
 pub struct IndexMapIter<'a, K, V, S> {
     pub map: &'a IndexMap<K, V, S>,
     pub index: usize,
+    pub end: usize, // exclusive
 }
 
-impl <'a, K, V, S> Iterator for IndexMapIter<'a, K, V, S> 
-where 
-    K: Eq + std::hash::Hash + Clone,
+impl<'a, K, V, S> Iterator for IndexMapIter<'a, K, V, S>
+where
+    K: Eq + std::hash::Hash,
     S: std::hash::BuildHasher,
 {
     type Item = (&'a K, &'a V);
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        if self.index < self.map.len() {
+        if self.index < self.end {
             unsafe {
-                let k = self.map.index_set.keys.get_unchecked(self.index);
-                let v = self.map.values.get_unchecked(self.index);
+                let i = self.index;
                 self.index += 1;
+                let k = self.map.index_set.keys.get_unchecked(i);
+                let v = self.map.values.get_unchecked(i);
                 Some((k, v))
             }
         } else {
             None
         }
-    } 
-    
+    }
+
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let remaining = self.map.len() - self.index;
+        let remaining = self.end - self.index;
         (remaining, Some(remaining))
     }
 
     #[inline]
     fn nth(&mut self, n: usize) -> Option<Self::Item> {
-        self.index += n;
+        // n 個スキップ
+        let new = self.index.saturating_add(n);
+        self.index = new.min(self.end);
         self.next()
     }
 }
+
+impl<'a, K, V, S> ExactSizeIterator for IndexMapIter<'a, K, V, S>
+where
+    K: Eq + std::hash::Hash,
+    S: std::hash::BuildHasher,
+{
+    #[inline]
+    fn len(&self) -> usize {
+        self.end - self.index
+    }
+}
+
+impl<'a, K, V, S> DoubleEndedIterator for IndexMapIter<'a, K, V, S>
+where
+    K: Eq + std::hash::Hash,
+    S: std::hash::BuildHasher,
+{
+    #[inline]
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if self.index < self.end {
+            unsafe {
+                self.end -= 1;
+                let i = self.end;
+                let k = self.map.index_set.keys.get_unchecked(i);
+                let v = self.map.values.get_unchecked(i);
+                Some((k, v))
+            }
+        } else {
+            None
+        }
+    }
+}
+
+impl<'a, K, V, S> FusedIterator for IndexMapIter<'a, K, V, S>
+where
+    K: Eq + std::hash::Hash,
+    S: std::hash::BuildHasher,
+{}
 
 pub enum EntryMut<'a, K, V, S> {
     Occupied { key: K, value: &'a mut V, index: usize },

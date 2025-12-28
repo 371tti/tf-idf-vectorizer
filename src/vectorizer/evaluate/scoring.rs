@@ -1,4 +1,4 @@
-use std::{borrow::Borrow, cmp::Ordering, fmt::{Debug, Display}, hash::Hash, ops::Deref};
+use std::{borrow::Borrow, cmp::Ordering, fmt::{Debug, Display}, hash::Hash, iter::FusedIterator, ops::Deref};
 
 use num_traits::{pow::Pow, Num};
 
@@ -213,9 +213,8 @@ where
 {
     fn optimized_iter<'a>(&'a self, filter: Vec<usize>) -> OptimizedDocIter<'a, K, N, E> {
         OptimizedDocIter {
-            contains_indices: filter,
+            contains_indices: filter.into_iter(),
             vectorizer: self,
-            current_opt_idx: 0,
         }
     }
 }
@@ -226,9 +225,8 @@ where
     N: Num + Copy + Into<f64> + Send + Sync,
     E: TFIDFEngine<N> + Send + Sync,
 {
-    contains_indices: Vec<usize>,
+    contains_indices: std::vec::IntoIter<usize>,
     vectorizer: &'a TFIDFVectorizer<N, K, E>,
-    current_opt_idx: usize,
 }
 
 impl<'a, K, N, E> Iterator for OptimizedDocIter<'a, K, N, E>
@@ -239,25 +237,54 @@ where
 {
     type Item = (&'a KeyRc<K>, &'a TFVector<N>);
 
+    #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
-        if self.current_opt_idx >= self.contains_indices.len() {
-            return None;
-        }
-        let doc_idx = self.contains_indices[self.current_opt_idx];
-        self.current_opt_idx += 1;
+        let doc_idx = self.contains_indices.next()?;
         self.vectorizer.documents.get_key_value_with_index(doc_idx)
     }
 
+    #[inline(always)]
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let remaining = self.contains_indices.len() - self.current_opt_idx;
-        (remaining, Some(remaining))
+        self.contains_indices.size_hint()
     }
 
+    #[inline(always)]
     fn nth(&mut self, n: usize) -> Option<Self::Item> {
-        self.current_opt_idx += n;
-        self.next()
+        let doc_idx = self.contains_indices.nth(n)?;
+        self.vectorizer.documents.get_key_value_with_index(doc_idx)
     }
 }
+
+impl<'a, K, N, E> ExactSizeIterator for OptimizedDocIter<'a, K, N, E>
+where
+    K: Clone + Send + Sync + PartialEq + Eq + Hash,
+    N: Num + Copy + Into<f64> + Send + Sync,
+    E: TFIDFEngine<N> + Send + Sync,
+{
+    fn len(&self) -> usize {
+        self.contains_indices.len()
+    }
+}
+
+impl<'a, K, N, E> DoubleEndedIterator for OptimizedDocIter<'a, K, N, E>
+where
+    K: Clone + Send + Sync + PartialEq + Eq + Hash,
+    N: Num + Copy + Into<f64> + Send + Sync,
+    E: TFIDFEngine<N> + Send + Sync,
+{
+    #[inline(always)]
+    fn next_back(&mut self) -> Option<Self::Item> {
+        let doc_idx = self.contains_indices.next_back()?;
+        self.vectorizer.documents.get_key_value_with_index(doc_idx)
+    }
+}
+
+impl<'a, K, N, E> FusedIterator for OptimizedDocIter<'a, K, N, E>
+where
+    K: Clone + Send + Sync + PartialEq + Eq + Hash,
+    N: Num + Copy + Into<f64> + Send + Sync,
+    E: TFIDFEngine<N> + Send + Sync,
+{}
 
 /// High-level search implementations
 impl<'a, N, K, E > TFIDFVectorizer<N, K, E>
