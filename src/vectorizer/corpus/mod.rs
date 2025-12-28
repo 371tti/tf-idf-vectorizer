@@ -3,9 +3,9 @@ use ahash::RandomState;
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 
-use crate::TokenFrequency;
+use crate::TermFrequency;
 
-/// keep document count and token counts in a thread-safe way
+/// keep document count and term counts in a thread-safe way
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Corpus {
     /// corpus add_num
@@ -14,8 +14,8 @@ pub struct Corpus {
     /// corpus sub_num
     /// for update notify
     pub sub_num: AtomicU64,
-    // token counts in corpus
-    pub token_counts: DashMap<Box<str>, u64, RandomState>,
+    // term counts in corpus
+    pub term_counts: DashMap<Box<str>, u64, RandomState>,
 }
 
 impl Clone for Corpus {
@@ -23,7 +23,7 @@ impl Clone for Corpus {
         Self {
             add_num: AtomicU64::new(self.add_num.load(Ordering::Acquire)),
             sub_num: AtomicU64::new(self.sub_num.load(Ordering::Acquire)),
-            token_counts: self.token_counts.clone(),
+            term_counts: self.term_counts.clone(),
         }
     }
 }
@@ -34,36 +34,36 @@ impl Corpus {
         Self {
             add_num: AtomicU64::new(0),
             sub_num: AtomicU64::new(0),
-            token_counts: DashMap::with_hasher(RandomState::new()),
+            term_counts: DashMap::with_hasher(RandomState::new()),
         }
     }
 
-    /// Add a document's tokens to the corpus
-    pub fn add_set<T>(&self, tokens: &[T])
+    /// Add a document's terms to the corpus
+    pub fn add_set<T>(&self, terms: &[T])
     where
         T: AsRef<str>,
     {
         self.add_num.fetch_add(1, Ordering::Relaxed);
-        for token in tokens {
-            self.token_counts
-                .entry(token.as_ref().into())
+        for term in terms {
+            self.term_counts
+                .entry(term.as_ref().into())
                 .and_modify(|count| *count += 1)
                 .or_insert(1);
         }
     }
 
-    pub fn sub_set<T>(&self, tokens: &[T])
+    pub fn sub_set<T>(&self, terms: &[T])
     where
         T: AsRef<str>,
     {
         self.sub_num.fetch_add(1, Ordering::Relaxed);
-        for token in tokens {
-            if let Some(mut count) = self.token_counts.get_mut(token.as_ref()) {
+        for term in terms {
+            if let Some(mut count) = self.term_counts.get_mut(term.as_ref()) {
                 if *count > 1 {
                     *count -= 1;
                 } else {
                     drop(count);
-                    self.token_counts.remove(token.as_ref());
+                    self.term_counts.remove(term.as_ref());
                 }
             }
         }
@@ -83,23 +83,23 @@ impl Corpus {
         add_num + sub_num
     }
 
-    /// Get the token count in the corpus
-    pub fn get_token_count(&self, token: &str) -> u64 {
-        self.token_counts.get(token).map_or(0, |count| *count)
+    /// Get the term count in the corpus
+    pub fn get_term_count(&self, term: &str) -> u64 {
+        self.term_counts.get(term).map_or(0, |count| *count)
     }
 
-    /// Get the current vocabulary size (number of unique tokens)
+    /// Get the current vocabulary size (number of unique terms)
     #[inline]
     pub fn vocab_size(&self) -> usize {
-        self.token_counts.len()
+        self.term_counts.len()
     }
 }
 
 /// for analyze usage
 impl Corpus {
-    /// Get all tokens in the corpus
-    pub fn get_all_tokens(&self) -> Vec<String> {
-        self.token_counts
+    /// Get all terms in the corpus
+    pub fn get_all_terms(&self) -> Vec<String> {
+        self.term_counts
             .iter()
             .map(|entry| entry.key().to_string())
             .collect()
@@ -109,14 +109,14 @@ impl Corpus {
     /// for trend analyze
     pub fn delta_corpus(&self, other: &Corpus) -> Corpus {
         let delta = Corpus::new();
-        for entry in self.token_counts.iter() {
-            let token = entry.key();
+        for entry in self.term_counts.iter() {
+            let term = entry.key();
             let count_self = *entry.value();
-            let count_other = other.token_counts.get(token).map_or(0, |v| *v);
+            let count_other = other.term_counts.get(term).map_or(0, |v| *v);
             if count_self > count_other {
                 delta
-                    .token_counts
-                    .insert(token.clone(), count_self - count_other);
+                    .term_counts
+                    .insert(term.clone(), count_self - count_other);
             }
         }
         delta.add_num
@@ -128,11 +128,11 @@ impl Corpus {
 
     /// Merge another corpus into self
     pub fn merge_corpus(&self, other: &Corpus) {
-        for entry in other.token_counts.iter() {
-            let token = entry.key();
+        for entry in other.term_counts.iter() {
+            let term = entry.key();
             let count_other = *entry.value();
-            self.token_counts
-                .entry(token.clone())
+            self.term_counts
+                .entry(term.clone())
                 .and_modify(|count| *count += count_other)
                 .or_insert(count_other);
         }
@@ -143,13 +143,13 @@ impl Corpus {
     }
 }
 
-impl Into<TokenFrequency> for &Corpus {
-    fn into(self) -> TokenFrequency {
-        let mut tf = TokenFrequency::new();
-        for entry in self.token_counts.iter() {
-            let token = entry.key();
+impl Into<TermFrequency> for &Corpus {
+    fn into(self) -> TermFrequency {
+        let mut tf = TermFrequency::new();
+        for entry in self.term_counts.iter() {
+            let term = entry.key();
             let count = *entry.value();
-            tf.set_token_count(token, count);
+            tf.set_term_count(term, count);
         }
         tf
     }

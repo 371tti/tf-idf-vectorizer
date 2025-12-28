@@ -1,4 +1,4 @@
-use crate::{TokenFrequency, utils::datastruct::map::{IndexMap, IndexSet}, vectorizer::KeyRc};
+use crate::{TermFrequency, utils::datastruct::map::{IndexMap, IndexSet}, vectorizer::KeyRc};
 
 #[derive(Clone, Debug)]
 pub enum QueryInner {
@@ -24,11 +24,11 @@ impl Query {
         Query { inner: QueryInner::All }
     }
 
-    pub fn token<S>(token: &S) -> Self 
+    pub fn term<S>(term: &S) -> Self 
     where
         S: AsRef<str> + ?Sized,
     {
-        Query { inner: QueryInner::Nop(Box::from(token.as_ref())) }
+        Query { inner: QueryInner::Nop(Box::from(term.as_ref())) }
     }
 
     pub fn not(order: Query) -> Self {
@@ -43,13 +43,13 @@ impl Query {
         Query { inner: QueryInner::Or(Box::new(left.inner), Box::new(right.inner)) }
     }
 
-    pub fn from_freq_or(freq: &TokenFrequency) -> Self {
-        let mut iter = freq.token_set_iter();
-        if let Some(first_token) = iter.next() {
-            let mut query = Query::token(first_token);
-            for token in iter {
-                let token_query = Query::token(token);
-                query = Query::or(query, token_query);
+    pub fn from_freq_or(freq: &TermFrequency) -> Self {
+        let mut iter = freq.term_set_iter();
+        if let Some(first_term) = iter.next() {
+            let mut query = Query::term(first_term);
+            for term in iter {
+                let term_query = Query::term(term);
+                query = Query::or(query, term_query);
             }
             query
         } else {
@@ -57,13 +57,13 @@ impl Query {
         }
     }
 
-    pub fn from_freq_and(freq: &TokenFrequency) -> Self {
-        let mut iter = freq.token_set_iter();
-        if let Some(first_token) = iter.next() {
-            let mut query = Query::token(first_token);
-            for token in iter {
-                let token_query = Query::token(token);
-                query = Query::and(query, token_query);
+    pub fn from_freq_and(freq: &TermFrequency) -> Self {
+        let mut iter = freq.term_set_iter();
+        if let Some(first_term) = iter.next() {
+            let mut query = Query::term(first_term);
+            for term in iter {
+                let term_query = Query::term(term);
+                query = Query::and(query, term_query);
             }
             query
         } else {
@@ -71,36 +71,36 @@ impl Query {
         }
     }
 
-    pub fn get_all_tokens(&self) -> Vec<&str> {
-        let mut tokens = Vec::new();
-        Self::collect_tokens_ref(&self.inner, &mut tokens);
-        tokens
+    pub fn get_all_terms(&self) -> Vec<&str> {
+        let mut terms = Vec::new();
+        Self::collect_terms_ref(&self.inner, &mut terms);
+        terms
     }
 
-    pub(crate) fn collect_tokens_ref<'a>(query: &'a QueryInner, tokens: &mut Vec<&'a str>) {
+    pub(crate) fn collect_terms_ref<'a>(query: &'a QueryInner, terms: &mut Vec<&'a str>) {
         match query {
             QueryInner::All => {
                 // do nothing
             }
             QueryInner::None => {}
-            QueryInner::Nop(token) => {
-                tokens.push(token);
+            QueryInner::Nop(term) => {
+                terms.push(term);
             }
             QueryInner::Not(inner) => {
-                Self::collect_tokens_ref(inner, tokens);
+                Self::collect_terms_ref(inner, terms);
             }
             QueryInner::And(left, right) => {
-                Self::collect_tokens_ref(left, tokens);
-                Self::collect_tokens_ref(right, tokens);
+                Self::collect_terms_ref(left, terms);
+                Self::collect_terms_ref(right, terms);
             }
             QueryInner::Or(left, right) => {
-                Self::collect_tokens_ref(left, tokens);
-                Self::collect_tokens_ref(right, tokens);
+                Self::collect_terms_ref(left, terms);
+                Self::collect_terms_ref(right, terms);
             }
         }
     }
 
-    pub(crate) fn build_ref<K>(query: &QueryInner, token_dim_rev_index: &IndexMap<Box<str>, Vec<KeyRc<K>>>, documents: &IndexSet<KeyRc<K>>) -> Vec<usize> 
+    pub(crate) fn build_ref<K>(query: &QueryInner, term_dim_rev_index: &IndexMap<Box<str>, Vec<KeyRc<K>>>, documents: &IndexSet<KeyRc<K>>) -> Vec<usize> 
     where 
         K: Eq + std::hash::Hash,
     {
@@ -113,8 +113,8 @@ impl Query {
                 result
             }
             QueryInner::None => Vec::new(),
-            QueryInner::Nop(token) => {
-                if let Some(doc_keys) = token_dim_rev_index.get(token) {
+            QueryInner::Nop(term) => {
+                if let Some(doc_keys) = term_dim_rev_index.get(term) {
                     let mut result = Vec::with_capacity(doc_keys.len());
                     for doc_key in doc_keys {
                         if let Some(idx) = documents.get_index(doc_key) {
@@ -128,7 +128,7 @@ impl Query {
                 }
             }
             QueryInner::Not(inner) => {
-                let inner_indices = Self::build_ref(inner, token_dim_rev_index, documents);
+                let inner_indices = Self::build_ref(inner, term_dim_rev_index, documents);
                 let mut result = Vec::with_capacity(documents.len() - inner_indices.len());
                 let mut inner_iter = inner_indices.iter().peekable();
                 for (idx, _) in documents.iter().enumerate() {
@@ -144,8 +144,8 @@ impl Query {
                 result
             }
             QueryInner::And(left, right) => {
-                let left_indices = Self::build_ref(left, token_dim_rev_index, documents);
-                let right_indices = Self::build_ref(right, token_dim_rev_index, documents);
+                let left_indices = Self::build_ref(left, term_dim_rev_index, documents);
+                let right_indices = Self::build_ref(right, term_dim_rev_index, documents);
                 let mut result = Vec::with_capacity(std::cmp::min(left_indices.len(), right_indices.len()));
                 let mut l = 0;
                 let mut r = 0;
@@ -167,8 +167,8 @@ impl Query {
                 result
             }
             QueryInner::Or(left, right) => {
-                let left_indices = Self::build_ref(left, token_dim_rev_index, documents);
-                let right_indices = Self::build_ref(right, token_dim_rev_index, documents);
+                let left_indices = Self::build_ref(left, term_dim_rev_index, documents);
+                let right_indices = Self::build_ref(right, term_dim_rev_index, documents);
                 let mut result = Vec::with_capacity(left_indices.len() + right_indices.len());
                 let mut l = 0;
                 let mut r = 0;
@@ -202,11 +202,11 @@ impl Query {
         }
     }
 
-    pub fn build<K>(&self, token_dim_rev_index: &IndexMap<Box<str>, Vec<KeyRc<K>>>, documents: &IndexSet<KeyRc<K>>) -> Vec<usize> 
+    pub fn build<K>(&self, term_dim_rev_index: &IndexMap<Box<str>, Vec<KeyRc<K>>>, documents: &IndexSet<KeyRc<K>>) -> Vec<usize> 
     where 
         K: Eq + std::hash::Hash,
     {
-        let mut res = Self::build_ref(&self.inner, token_dim_rev_index, documents);
+        let mut res = Self::build_ref(&self.inner, term_dim_rev_index, documents);
         res.sort_unstable();
         res.dedup();
         res

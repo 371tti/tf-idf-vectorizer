@@ -2,14 +2,13 @@ use std::{borrow::Borrow, cmp::Ordering, fmt::{Debug, Display}, hash::Hash, ops:
 
 use num_traits::{pow::Pow, Num};
 
-use crate::{utils::{datastruct::vector::ZeroSpVecTrait, normalizer::DeNormalizer}, vectorizer::{KeyRc, TFIDFVectorizer, evaluate::query::Query, tfidf::TFIDFEngine, token::TokenFrequency}};
-use crate::vectorizer::TFVector;
+use crate::{Query, TFIDFEngine, TFIDFVectorizer, TermFrequency, utils::{datastruct::vector::{TFVector, TFVectorTrait}}, vectorizer::KeyRc};
 
 /// Enum for similarity algorithms used in search queries
 #[derive(Clone)]
 pub enum SimilarityAlgorithm {
     /// Contains
-    /// Checks if documents contain the query tokens
+    /// Checks if documents contain the query terms
     Contains,
     /// Dot product similarity
     /// Considers both direction and magnitude
@@ -29,14 +28,14 @@ pub enum SimilarityAlgorithm {
 pub struct Hits<K> 
 {
     /// (Document ID, Score, Document Length)
-    pub list: Vec<HitEntry<K>>, // (key, score, document token sum)
+    pub list: Vec<HitEntry<K>>, // (key, score, document term sum)
 }
 
 #[derive(Clone, Debug)]
 pub struct HitEntry<K> {
     pub key: K,
     pub score: f64,
-    pub doc_len: u64,
+    pub doc_len: u32,
 }
 
 impl<K> Display for HitEntry<K> 
@@ -151,19 +150,19 @@ where
 impl<N, K, E> TFIDFVectorizer<N, K, E>
 where
     K: Clone + Sync + Send + PartialEq + Eq + Hash,
-    N: Num + Copy + Into<f64> + DeNormalizer + Send + Sync,
-    E: TFIDFEngine<N, K> + Send + Sync,
+    N: Num + Copy + Into<f64> + Send + Sync,
+    E: TFIDFEngine<N> + Send + Sync,
 {
     /// High-level similarity search interface
-    pub fn similarity(&mut self, algorithm: &SimilarityAlgorithm, freq: &TokenFrequency, query: Option<&Query>) -> Hits<K> {
+    pub fn similarity(&mut self, algorithm: &SimilarityAlgorithm, freq: &TermFrequency, query: Option<&Query>) -> Hits<K> {
         self.update_idf();
         self.similarity_uncheck_idf(algorithm, freq, query)
     }
 
     /// High-level similarity search interface without IDF update check
-    pub fn similarity_uncheck_idf(&self, algorithm: &SimilarityAlgorithm, freq: &TokenFrequency, filter_query: Option<&Query>) -> Hits<K> {
+    pub fn similarity_uncheck_idf(&self, algorithm: &SimilarityAlgorithm, freq: &TermFrequency, filter_query: Option<&Query>) -> Hits<K> {
         let binding = Query::from_freq_or(freq);
-        let doc_iter = self.optimized_iter(filter_query.unwrap_or(&binding).build(&self.token_dim_rev_index, &self.documents.as_index_set()));
+        let doc_iter = self.optimized_iter(filter_query.unwrap_or(&binding).build(&self.term_dim_rev_index, &self.documents.as_index_set()));
         match algorithm {
             SimilarityAlgorithm::Contains => self.contains_docs(freq),
             SimilarityAlgorithm::Dot => self.scoring_dot(freq, doc_iter),
@@ -180,8 +179,8 @@ where
 
     /// High-level search interface without IDF update check
     pub fn search_uncheck_idf(&self, algorithm: &SimilarityAlgorithm, query: Query) -> Hits<K> {
-        let freq = TokenFrequency::from(query.get_all_tokens().as_slice());
-        let doc_iter =  self.optimized_iter(query.build(&self.token_dim_rev_index, &self.documents.as_index_set()));
+        let freq = TermFrequency::from(query.get_all_terms().as_slice());
+        let doc_iter =  self.optimized_iter(query.build(&self.term_dim_rev_index, &self.documents.as_index_set()));
         match algorithm {
             SimilarityAlgorithm::Contains => self.contains_docs(&freq),
             SimilarityAlgorithm::Dot => self.scoring_dot(&freq, doc_iter),
@@ -194,8 +193,8 @@ where
 impl<N, K, E> TFIDFVectorizer<N, K, E>
 where
     K: Clone + Send + Sync + PartialEq + Eq + Hash,
-    N: Num + Copy + Into<f64> + DeNormalizer + Send + Sync,
-    E: TFIDFEngine<N, K> + Send + Sync,
+    N: Num + Copy + Into<f64> + Send + Sync,
+    E: TFIDFEngine<N> + Send + Sync,
 {
     fn optimized_iter<'a>(&'a self, filter: Vec<usize>) -> OptimizedDocIter<'a, K, N, E> {
         OptimizedDocIter {
@@ -209,8 +208,8 @@ where
 pub struct OptimizedDocIter<'a, K, N, E>
 where
     K: Clone + Send + Sync + PartialEq + Eq + Hash,
-    N: Num + Copy + Into<f64> + DeNormalizer + Send + Sync,
-    E: TFIDFEngine<N, K> + Send + Sync,
+    N: Num + Copy + Into<f64> + Send + Sync,
+    E: TFIDFEngine<N> + Send + Sync,
 {
     contains_indices: Vec<usize>,
     vectorizer: &'a TFIDFVectorizer<N, K, E>,
@@ -220,8 +219,8 @@ where
 impl<'a, K, N, E> Iterator for OptimizedDocIter<'a, K, N, E>
 where
     K: Clone + Send + Sync + PartialEq + Eq + Hash,
-    N: Num + Copy + Into<f64> + DeNormalizer + Send + Sync,
-    E: TFIDFEngine<N, K> + Send + Sync,
+    N: Num + Copy + Into<f64> + Send + Sync,
+    E: TFIDFEngine<N> + Send + Sync,
 {
     type Item = (&'a KeyRc<K>, &'a TFVector<N>);
 
@@ -249,13 +248,13 @@ where
 impl<'a, N, K, E > TFIDFVectorizer<N, K, E>
 where
     K: Clone + Send + Sync + PartialEq + Eq + Hash + 'a,
-    N: Num + Copy + Into<f64> + DeNormalizer + Send + Sync + 'a,
-    E: TFIDFEngine<N, K> + Send + Sync,
+    N: Num + Copy + Into<f64> + Send + Sync + 'a,
+    E: TFIDFEngine<N> + Send + Sync,
 {
-    /// Contains document indices that have at least one token in freq
-    fn contains_docs(&self, freq: &TokenFrequency) -> Hits<K> {
-        let mut doc_indices: Vec<usize> = freq.token_set_ref_str().iter().flat_map(|&token| {
-            self.token_dim_rev_index.get(token).map(|keys| {
+    /// Contains document indices that have at least one term in freq
+    fn contains_docs(&self, freq: &TermFrequency) -> Hits<K> {
+        let mut doc_indices: Vec<usize> = freq.term_set_ref_str().iter().flat_map(|&term| {
+            self.term_dim_rev_index.get(term).map(|keys| {
                 keys.iter().filter_map(|key| {
                     self.documents.get_index(key)
                 }).collect::<Vec<usize>>()
@@ -264,36 +263,33 @@ where
         doc_indices.sort_unstable();
         doc_indices.dedup();
         doc_indices.iter().map(|&idx| {
-            let (key, doc) = self.documents.get_key_value_with_index(idx).unwrap();
+            let (key, doc_tf_vec) = self.documents.get_key_value_with_index(idx).unwrap();
             HitEntry {
                 key: key.deref().clone(),
                 score: 1.0,
-                doc_len: doc.token_sum,
+                doc_len: doc_tf_vec.term_sum(),
             }
         }).collect()
     }
 
     /// Scoring by dot product
-    fn scoring_dot(&self, freq: &TokenFrequency, doc_iter: impl Iterator<Item = (&'a KeyRc<K>, &'a TFVector<N>)>) -> Hits<K> {
-        let (tf, tf_denormalize_num) = E::tf_vec(&freq, self.token_dim_rev_index.as_index_set());
+    fn scoring_dot(&self, freq: &TermFrequency, doc_iter: impl Iterator<Item = (&'a KeyRc<K>, &'a TFVector<N>)>) -> Hits<K> {
+        let query_tf_vec = E::tf_vec(&freq, self.term_dim_rev_index.as_index_set());
 
-        let doc_scores = doc_iter.map(|(key, doc)| 
+        let doc_scores = doc_iter.map(|(key, doc_tf_vec)| 
             HitEntry {
                 key: key.deref().clone(),
                 score: {
                     let mut cut_down = 0;
-                    tf.raw_iter().map(|(idx, val)| {
-                        let idf = self.idf_cache.idf_vec.get(idx).copied().unwrap_or(0.0).denormalize(self.idf_cache.denormalize_num);
-                        let tf2 = doc.tf_vec.raw_get_with_cut_down(idx, cut_down).map(|v| {
-                            cut_down = v.index + 1; // Update cut_down to skip processed indices
-                            v.value
-                        }).copied().unwrap_or(N::zero()).denormalize(doc.denormalize_num);
-                        let tf1 = val.denormalize(tf_denormalize_num);
+                    query_tf_vec.raw_iter().map(|(idx, val)| {
+                        let idf = self.idf_cache.idf_vec.get(idx as usize).copied().unwrap_or(0.0);
+                        let tf2 = E::tf_denorm(doc_tf_vec.get_power_jump(idx, &mut cut_down).unwrap_or(N::zero()));
+                        let tf1 = E::tf_denorm(val);
                         // Dot product calculation
                         tf1 as f64 * tf2 as f64 * (idf as f64 * idf as f64)
                     }).sum::<_>()
                 },
-                doc_len: doc.token_sum
+                doc_len: doc_tf_vec.term_sum()
             }
         ).collect();
         doc_scores
@@ -301,11 +297,12 @@ where
 
     /// Scoring by cosine similarity
     /// cosθ = A・B / (|A||B|)
-    fn scoring_cosine(&self, freq: &TokenFrequency, doc_iter: impl Iterator<Item = (&'a KeyRc<K>, &'a TFVector<N>)>) -> Hits<K> {
-        let (tf_1, tf_denormalize_num) = E::tf_vec(&freq, self.token_dim_rev_index.as_index_set());
-        let doc_scores = doc_iter.map(|(key, doc)| {
-            let tf_1 = tf_1.raw_iter();
-            let tf_2 = doc.tf_vec.raw_iter();
+    fn scoring_cosine(&self, freq: &TermFrequency, doc_iter: impl Iterator<Item = (&'a KeyRc<K>, &'a TFVector<N>)>) -> Hits<K> {
+        let query_tf_vec= E::tf_vec(&freq, self.term_dim_rev_index.as_index_set());
+
+        let doc_scores = doc_iter.map(|(key, doc_tf_vec)| {
+            let tf_1 = query_tf_vec.raw_iter();
+            let tf_2 = doc_tf_vec.raw_iter();
             let mut a_it = tf_1.fuse();
             let mut b_it = tf_2.fuse();
             let mut a_next = a_it.next();
@@ -314,32 +311,31 @@ where
             let mut norm_b = 0_f32;
             let mut dot = 0_f32;
             // helper closure to fetch idf weight (denormalized). Missing indices get zero.
-            let idf_w = |i: usize| -> f32 {
+            let idf_w = |i: u32| -> f32 {
                 self.idf_cache
                     .idf_vec
-                    .get(i)
+                    .get(i as usize)
                     .copied()
                     .unwrap_or(0.0)
-                    .denormalize(self.idf_cache.denormalize_num)
             };
             while let (Some((ia, va)), Some((ib, vb))) = (a_next, b_next) {
                 match ia.cmp(&ib) {
                     Ordering::Equal => {
                         let idf = idf_w(ia);
-                        norm_a += (va.denormalize(tf_denormalize_num) * idf).pow(2);
-                        norm_b += (vb.denormalize(doc.denormalize_num) * idf).pow(2);
-                        dot += va.denormalize(tf_denormalize_num) * vb.denormalize(doc.denormalize_num) * (idf * idf);
+                        norm_a += (E::tf_denorm(va) as f32 * idf).pow(2);
+                        norm_b += (E::tf_denorm(vb) as f32 * idf).pow(2);
+                        dot += E::tf_denorm(va) as f32 * E::tf_denorm(vb) as f32 * (idf * idf);
                         a_next = a_it.next();
                         b_next = b_it.next();
                     }
                     Ordering::Less => {
                         let idf = idf_w(ia);
-                        norm_a += (va.denormalize(tf_denormalize_num) * idf).pow(2);
+                        norm_a += (E::tf_denorm(va) as f32 * idf).pow(2);
                         a_next = a_it.next();
                     }
                     Ordering::Greater => {
                         let idf = idf_w(ib);
-                        norm_b += (vb.denormalize(doc.denormalize_num) * idf).pow(2);
+                        norm_b += (E::tf_denorm(vb) as f32 * idf).pow(2);
                         b_next = b_it.next();
                     }
                 }
@@ -347,13 +343,13 @@ where
             // Remaining terms on the query side (a)
             while let Some((ia, va)) = a_next {
                 let idf = idf_w(ia);
-                norm_a += (va.denormalize(tf_denormalize_num) * idf).pow(2);
+                norm_a += (E::tf_denorm(va) as f32 * idf).pow(2);
                 a_next = a_it.next();
             }
             // Remaining terms on the document side (b)
             while let Some((ib, vb)) = b_next {
                 let idf = idf_w(ib);
-                norm_b += (vb.denormalize(doc.denormalize_num) * idf).pow(2);
+                norm_b += (E::tf_denorm(vb) as f32 * idf).pow(2);
                 b_next = b_it.next();
             }
             let norm_a = norm_a.sqrt();
@@ -363,33 +359,35 @@ where
             HitEntry {
                 key: key.deref().clone(),
                 score,
-                doc_len: doc.token_sum,
+                doc_len: doc_tf_vec.term_sum(),
             }
         }).collect();
         doc_scores
     }
 
     /// Scoring by BM25-Like
-    fn scoring_bm25(&self, freq: &TokenFrequency, k1: f64, b: f64, doc_iter: impl Iterator<Item = (&'a KeyRc<K>, &'a TFVector<N>)>) -> Hits<K> {
-        let (tf, _tf_denormalize_num) = E::tf_vec(&freq, self.token_dim_rev_index.as_index_set());
+    fn scoring_bm25(&self, freq: &TermFrequency, k1: f64, b: f64, doc_iter: impl Iterator<Item = (&'a KeyRc<K>, &'a TFVector<N>)>) -> Hits<K> {
+        let query_tf_vec = E::tf_vec(&freq, self.term_dim_rev_index.as_index_set());
+
         let k1_p = k1 + 1.0;
-        // Average document length
-        let avg_l = self.documents.iter().map(|(_k, doc)| doc.token_sum as f64).sum::<f64>() / self.documents.len() as f64;
+        // Average document length in the vectorizer
+        let avg_l = self.documents.iter().map(|(_k, doc_tf_vec)| doc_tf_vec.term_sum() as f64).sum::<f64>() / self.documents.len() as f64;
         let rev_avg_l = 1.0 / avg_l;
 
-        let doc_scores = doc_iter.map(|(key, doc)| 
+        let doc_scores = doc_iter.map(|(key, doc_tf_vec)| 
             HitEntry {
                 key: key.deref().clone(),
                 score: {
-                    let len_p = doc.token_sum as f64 * rev_avg_l;
-                    tf.raw_iter().map(|(idx, _qtf)| {
-                        let idf = self.idf_cache.idf_vec.get(idx).copied().unwrap_or(0.0).denormalize(self.idf_cache.denormalize_num).ln();
-                        let dtf = doc.tf_vec.get(idx).copied().unwrap_or(N::zero()).denormalize(doc.denormalize_num);
+                    let len_p = doc_tf_vec.term_sum() as f64 * rev_avg_l;
+                    let mut cut_down = 0;
+                    query_tf_vec.raw_iter().map(|(idx, _qtf)| {
+                        let idf = self.idf_cache.idf_vec.get(idx as usize).copied().unwrap_or(0.0).ln();
+                        let dtf = E::tf_denorm(doc_tf_vec.get_power_jump(idx, &mut cut_down).unwrap_or(N::zero()));
                         // BM25 scoring formula
                         idf as f64 * ((dtf as f64 * k1_p) / (dtf as f64 + k1 * (1.0 - b + (b * len_p))))
                     }).sum::<_>()
                 },
-                doc_len: doc.token_sum
+                doc_len: doc_tf_vec.term_sum()
             }
         ).collect();
         doc_scores

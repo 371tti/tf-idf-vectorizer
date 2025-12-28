@@ -13,7 +13,7 @@
 //! The crate is composed of the following core concepts:
 //!
 //! - **Corpus**: Global document-frequency statistics (IDF base)
-//! - **TokenFrequency**: Per-document token statistics (TF base)
+//! - **TermFrequency**: Per-document term statistics (TF base)
 //! - **TFIDFVectorizer**: Converts documents into sparse TF-IDF vectors
 //! - **TFIDFEngine**: Pluggable TF / IDF calculation strategy
 //! - **SimilarityAlgorithm**: Multiple scoring algorithms (Cosine, Dot, BM25-like)
@@ -23,26 +23,27 @@
 //! ```rust
 //! use std::sync::Arc;
 //! 
-//! use tf_idf_vectorizer::{Corpus, SimilarityAlgorithm, TFIDFVectorizer, TokenFrequency, vectorizer::evaluate::query::Query};
+//! use half::f16;
+//! use tf_idf_vectorizer::{Corpus, SimilarityAlgorithm, TFIDFVectorizer, TermFrequency, vectorizer::evaluate::query::Query};
 //! 
 //! fn main() {
 //!     // build corpus
 //!     let corpus = Arc::new(Corpus::new());
 //! 
-//!     // make token frequencies
-//!     let mut freq1 = TokenFrequency::new();
-//!     freq1.add_tokens(&["rust", "高速", "並列", "rust"]);
-//!     let mut freq2 = TokenFrequency::new();
-//!     freq2.add_tokens(&["rust", "柔軟", "安全", "rust"]);
+//!     // make term frequencies
+//!     let mut freq1 = TermFrequency::new();
+//!     freq1.add_terms(&["rust", "高速", "並列", "rust"]);
+//!     let mut freq2 = TermFrequency::new();
+//!     freq2.add_terms(&["rust", "柔軟", "安全", "rust"]);
 //! 
 //!     // add documents to vectorizer
-//!     let mut vectorizer: TFIDFVectorizer<u16> = TFIDFVectorizer::new(corpus);    
+//!     let mut vectorizer: TFIDFVectorizer<f16> = TFIDFVectorizer::new(corpus);    
 //!     vectorizer.add_doc("doc1".to_string(), &freq1);
 //!     vectorizer.add_doc("doc2".to_string(), &freq2);
 //!     vectorizer.del_doc(&"doc1".to_string());
 //!     vectorizer.add_doc("doc3".to_string(), &freq1);
 //! 
-//!     let query = Query::and(Query::token("rust"), Query::token("安全"));
+//!     let query = Query::and(Query::term("rust"), Query::term("安全"));
 //!     let algorithm = SimilarityAlgorithm::CosineSimilarity;
 //!     let mut result = vectorizer.search(&algorithm, query);
 //!     result.sort_by_score_desc();
@@ -79,7 +80,7 @@ pub mod utils;
 /// ### Internals
 /// - Corpus vocabulary
 /// - Sparse TF vectors per document
-/// - Token index mapping
+/// - term index mapping
 /// - Cached IDF vector
 /// - Pluggable TF-IDF engine
 /// - Inverted document index
@@ -128,7 +129,7 @@ pub use vectorizer::serde::TFIDFData;
 /// This struct does **not** store document text or identifiers.
 /// It only tracks:
 /// - Total number of documents
-/// - Number of documents containing each token
+/// - Number of documents containing each term
 ///
 /// ### Thread Safety
 /// - Fully thread-safe
@@ -139,18 +140,18 @@ pub use vectorizer::serde::TFIDFData;
 /// - Can be reused across multiple vectorizers
 pub use vectorizer::corpus::Corpus;
 
-/// Token Frequency Structure
+/// term Frequency Structure
 ///
-/// Manages per-document token statistics used for TF calculation.
+/// Manages per-document term statistics used for TF calculation.
 ///
 /// Tracks:
-/// - Token occurrence counts
-/// - Total token count in the document
+/// - term occurrence counts
+/// - Total term count in the document
 ///
 /// ### Use Cases
 /// - TF calculation
-/// - Token-level statistics
-pub use vectorizer::token::TokenFrequency;
+/// - term-level statistics
+pub use vectorizer::term::TermFrequency;
 
 #[doc = "## TF-IDF Engines"]
 /// TF-IDF Calculation Engine Trait
@@ -177,7 +178,7 @@ pub use vectorizer::tfidf::{DefaultTFIDFEngine, TFIDFEngine};
 /// Defines scoring algorithms used during search.
 ///
 /// ### Variants
-/// - `Contains`: Token containment check
+/// - `Contains`: term containment check
 /// - `Dot`: Dot product (long documents)
 /// - `Cosine`: Cosine similarity (proper nouns)
 /// - `BM25Like`: BM25-inspired scoring

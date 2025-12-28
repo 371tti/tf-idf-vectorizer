@@ -4,7 +4,7 @@
 queryでは`&` `|` `!` `[]` が使えるようにしてます。
 
 ## index構築
-sudachi tokenizerを用い、C modeでtokenizeしたのち それらの語彙をさらにA modeでtokenizeしています。
+sudachi termizerを用い、C modeでtermizeしたのち それらの語彙をさらにA modeでtermizeしています。
 ```
  .\target\release\doc-search-test.exe index --docs .\wikipedia_all_articles_fast\wikipedia_all_articles_fast\
   2340391 files | 00:00:04 | 574,720.5244/s files/s 

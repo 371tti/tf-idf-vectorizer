@@ -57,6 +57,11 @@ where
         }
     }
 
+    pub fn shrink_to_fit(&mut self) {
+        self.values.shrink_to_fit();
+        self.index_set.shrink_to_fit();
+    }
+
     #[inline]
     pub fn len(&self) -> usize {
         self.values.len()
@@ -398,6 +403,11 @@ where
 
     pub fn capacity(&self) -> usize {
         self.keys.capacity()
+    }
+
+    pub fn shrink_to_fit(&mut self) {
+        self.keys.shrink_to_fit();
+        self.hashes.shrink_to_fit();
     }
 
     /// hash util

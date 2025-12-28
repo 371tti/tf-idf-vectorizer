@@ -1,878 +1,443 @@
-// pub mod math;
-pub mod serde;
-
-use std::{alloc::{alloc, dealloc, realloc, Layout}, fmt, marker::PhantomData, mem, ptr::{self, NonNull}};
-use std::ops::Index;
-use std::fmt::Debug;
+use std::{alloc::Layout, iter::FusedIterator, mem, ptr::NonNull};
 
 use num_traits::Num;
-/// ZeroSpVecは0要素を疎とした過疎ベクトルを実装です
-/// indices と valuesを持ち
-/// indicesは要素のインデックスを保持し、
-/// valuesは要素の値を保持します
-/// 
-/// 要素はindicesの昇順でソートされていることを保証します
-pub struct ZeroSpVec<N>  
-where N: Num
-{
-    buf: RawZeroSpVec<N>,
-    len: usize,
-    nnz: usize,
-    zero: N,
-}
 
-pub trait ZeroSpVecTrait<N>: Clone + Default + Index<usize, Output = N>
-where N: Num
+pub mod serde;
+
+const TF_VECTOR_SIZE: usize = core::mem::size_of::<TFVector<u8>>();
+static_assertions::const_assert!(TF_VECTOR_SIZE == 32);
+
+pub trait TFVectorTrait<N>
+where N: Num + Copy
 {
+    fn len(&self) -> u32;
+    fn nnz(&self) -> u32;
+    fn term_sum(&self) -> u32;
+    fn new() -> Self;
+    fn new_with_capacity(capacity: u32) -> Self;
+    fn shrink_to_fit(&mut self);
+    fn raw_iter(&self) -> RawTFVectorIter<'_, N>;
+    unsafe fn from_vec(ind_vec: Vec<u32>, val_vec: Vec<N>, len: u32, term_sum: u32) -> Self;
     unsafe fn ind_ptr(&self) -> *mut u32;
     unsafe fn val_ptr(&self) -> *mut N;
-    unsafe fn raw_push(&mut self, index: usize, value: N);
-    fn ind_binary_search(&self, index: usize, cut_down: usize) -> Result<usize, usize>;
-    fn new() -> Self;
-    fn with_capacity(cap: usize) -> Self;
-    fn reserve(&mut self, additional: usize);
-    fn shrink_to_fit(&mut self);
-    fn is_empty(&self) -> bool;
-    fn len(&self) -> usize;
-    unsafe fn set_len(&mut self, len: usize);
-    fn capacity(&self) -> usize;
-    fn nnz(&self) -> usize;
-    fn add_dim(&mut self, dim: usize);
-    fn clear(&mut self);
-    fn push(&mut self, elem: N);
-    fn pop(&mut self) -> Option<N>;
-    fn get(&self, index: usize) -> Option<&N>;
-    fn raw_get(&self, index: usize) -> Option<ValueWithIndex<'_, N>>;
-    fn get_with_cut_down(&self, index: usize, cut_down: usize) -> Option<&N>;
-    fn raw_get_with_cut_down(&self, index: usize, cut_down: usize) -> Option<ValueWithIndex<'_, N>>;
-    fn get_ind(&self, index: usize) -> Option<usize>;
-    fn remove(&mut self, index: usize) -> N;
-    fn from_vec(vec: Vec<N>) -> Self;
-    unsafe fn from_raw_iter(iter: impl Iterator<Item = (usize, N)>, len: usize) -> Self;
-    unsafe fn from_sparse_iter(iter: impl Iterator<Item = (usize, N)>, len: usize) -> Self;
-    fn iter(&self) -> ZeroSpVecIter<'_, N>;
-    fn raw_iter(&self) -> ZeroSpVecRawIter<'_, N>;
-}
-
-pub struct ValueWithIndex<'a, N>
-where N: Num
-{
-    pub index: usize,
-    pub value: &'a N,
-}
-
-impl<N> ZeroSpVecTrait<N> for ZeroSpVec<N> 
-where N: Num
-{
-    #[inline]
-    unsafe fn ind_ptr(&self) -> *mut u32 {
-        self.buf.ind_ptr.as_ptr()
-    }
-
-    #[inline]
-    unsafe fn val_ptr(&self) -> *mut N {
-        self.buf.val_ptr.as_ptr()
-    }
-
-    /// raw_pushは、要素を追加するためのメソッド
-    /// ただしlenを更新しない
-    /// 
-    /// # Arguments
-    /// - `index` - 追加する要素のインデックス
-    /// - `value` - 追加する要素の値
-    #[inline]
-    unsafe fn raw_push(&mut self, index: usize, value: N) {
-        if self.nnz == self.buf.cap {
-            self.buf.grow();
+    /// Power Jump Search
+    /// Returns Some((value, sp_vec_raw_ind)) if found, None otherwise
+    unsafe fn power_jump_search(&self, target: u32, start: usize) -> Option<(N, usize)>
+    where
+        N: Copy,
+    {
+        let nnz = self.nnz() as usize;
+        if start >= nnz {
+            return None;
         }
-        unsafe {
-            let val_ptr = self.val_ptr().add(self.nnz);
-            let ind_ptr = self.ind_ptr().add(self.nnz);
-            ptr::write(val_ptr, value);
-            debug_assert!(index <= u32::MAX as usize, "index overflow for u32 storage");
-            ptr::write(ind_ptr, index as u32);
-        }
-        self.nnz += 1;
-    }
 
-    #[inline]
-    fn ind_binary_search(&self, index: usize, cut_down: usize) -> Result<usize, usize> {
-        // 要素が無い場合 Err(0)
-        if self.nnz == 0 {
-            return Err(0);
+        let ind = unsafe { core::slice::from_raw_parts(self.ind_ptr(), nnz) };
+        let val = unsafe { core::slice::from_raw_parts(self.val_ptr(), nnz) };
+
+        // fast path
+        let mut lo = start;
+        let mut hi = start;
+
+        let s = ind[hi];
+        if s == target {
+            return Some((val[hi], hi));
         }
-        let mut left = cut_down;
-        let mut right = self.nnz - 1;
-        while left < right {
-            let mid = left + (right - left) / 2;
-            // read は mid < nnz を満たすため安全...
-            let mid_index = unsafe { *self.ind_ptr().add(mid) as usize };
-            if mid_index == index {
-                return Ok(mid);
-            } else if mid_index < index {
-                left = mid + 1;
+        if s > target {
+            return None; // forward-only
+        }
+
+        // galloping
+        let mut step = 1usize;
+        loop {
+            let next_hi = hi + step;
+            if next_hi >= nnz {
+                hi = nnz - 1;
+                break;
+            }
+            hi = next_hi;
+
+            if ind[hi] >= target {
+                break;
+            }
+
+            lo = hi;
+            step <<= 1;
+        }
+
+        // lower_bound in (lo, hi] => [lo+1, hi+1)
+        let mut l = lo + 1;
+        let mut r = hi + 1; // exclusive
+        while l < r {
+            let m = (l + r) >> 1;
+            if ind[m] < target {
+                l = m + 1;
             } else {
-                right = mid;
+                r = m;
             }
         }
 
-        let final_index = unsafe { *self.ind_ptr().add(left) as usize };
-        if final_index == index {
-            Ok(left)
-        } else if final_index < index {
-            Err(left + 1)
-        } else {
-            Err(left)
-        }
-    }
-
-    #[inline]
-    fn new() -> Self {
-        ZeroSpVec {
-            buf: RawZeroSpVec::new(),
-            len: 0,
-            nnz: 0,
-            zero: N::zero(),
-        }
-    }
-
-    #[inline]
-    fn with_capacity(cap: usize) -> Self {
-        let mut buf = RawZeroSpVec::new();
-        buf.cap = cap;
-        buf.cap_set();
-        ZeroSpVec {
-            buf: buf,
-            len: 0,
-            nnz: 0,
-            zero: N::zero(),
-        }
-    }
-
-    /// capの拡張
-    #[inline]
-    fn reserve(&mut self, additional: usize) {
-        let new_cap = self.nnz + additional;
-        if new_cap > self.buf.cap {
-            let old_cap = self.buf.cap;
-            self.buf.cap = new_cap;
-            self.buf.re_cap_set(old_cap);
-        }
-    }
-
-    /// capの最適化 未使用領域を解放
-    #[inline]
-    fn shrink_to_fit(&mut self) {
-        // len ではなく nnz で判定する
-        if self.nnz < self.buf.cap {
-            let old_cap = self.buf.cap;
-            self.buf.cap = self.nnz;
-            self.buf.re_cap_set(old_cap);
-        }
-    }
-
-    #[inline]
-    fn is_empty(&self) -> bool {
-        self.len == 0
-    }
-
-    #[inline]
-    fn len(&self) -> usize {
-        self.len
-    }
-
-    #[inline]
-    unsafe fn set_len(&mut self, len: usize) {
-        self.len = len;
-    }
-
-    /// capacityを返す
-    #[inline]
-    fn capacity(&self) -> usize {
-        self.buf.cap
-    }
-
-    /// nnz(Number of Non-Zero)を返す
-    #[inline]
-    fn nnz(&self) -> usize {
-        self.nnz
-    }
-
-    /// ベクトルの次元数を追加します
-    #[inline]
-    fn add_dim(&mut self, dim: usize) {
-        self.len += dim;
-    }
-
-    /// 全要素を削除します
-    /// cap は維持されるのでメモリを解放したけりゃ shrink_to_fit を呼んで
-    #[inline]
-    fn clear(&mut self) {
-        while let Some(_) = self.pop() {
-            // do nothing
-        }
-    }
-
-    #[inline]
-    fn push(&mut self, elem: N) {
-        if self.nnz == self.buf.cap {
-            self.buf.grow();
-        }
-        if elem != N::zero() {
-            unsafe {
-                let val_ptr = self.val_ptr().add(self.nnz);
-                let ind_ptr = self.ind_ptr().add(self.nnz);
-                ptr::write(val_ptr, elem);
-                debug_assert!(self.len <= u32::MAX as usize, "index overflow for u32 storage");
-                ptr::write(ind_ptr, self.len as u32);
-            }
-            self.nnz += 1;
-        }
-        self.len += 1;
-    }
-
-    #[inline]
-    fn pop(&mut self) -> Option<N> {
-        if self.len == 0 {
-            return None;
-        }
-
-        let last_logical_index = self.len - 1;
-
-        // 末尾が実際に格納されているか（ind[nnz-1] == len-1）を見る
-        let has_last = self.nnz > 0
-            && unsafe { *self.ind_ptr().add(self.nnz - 1) as usize } == last_logical_index;
-
-        let popped = if has_last {
-            self.nnz -= 1;
-            unsafe { Some(ptr::read(self.val_ptr().add(self.nnz))) }
-        } else {
-            Some(N::zero())
-        };
-
-        self.len -= 1;
-        popped
-    }
-
-    #[inline]
-    fn get(&self, index: usize) -> Option<&N> {
-        if index >= self.len {
-            return None;
-        }
-        match self.ind_binary_search(index, 0) {
-            Ok(idx) => {
-                unsafe {
-                    Some(&*self.val_ptr().add(idx))
-                }
-            },
-            Err(_) => {
-                Some(&self.zero)
-            }
-        }
-    }
-
-    #[inline]
-    fn raw_get(&self, index: usize) -> Option<ValueWithIndex<'_, N>> {
-        if index >= self.len {
-            return None;
-        }
-        match self.ind_binary_search(index, 0) {
-            Ok(idx) => {
-                unsafe {
-                    Some(ValueWithIndex {
-                        index,
-                        value: &*self.val_ptr().add(idx),
-                    })
-                }
-            },
-            Err(_) => {
-                Some(ValueWithIndex {
-                    index,
-                    value: &self.zero,
-                })
-            }
-        }
-    }
-
-    #[inline]
-    fn get_with_cut_down(&self, index: usize, cut_down: usize) -> Option<&N> {
-        if index >= self.len {
-            return None;
-        }
-        match self.ind_binary_search(index, cut_down) {
-            Ok(idx) => {
-                unsafe {
-                    Some(&*self.val_ptr().add(idx))
-                }
-            },
-            Err(_) => {
-                Some(&self.zero)
-            }
-        }
-    }
-
-    #[inline]
-    fn raw_get_with_cut_down(&self, index: usize, cut_down: usize) -> Option<ValueWithIndex<'_, N>> {
-        if index >= self.len || cut_down >= self.nnz {
-            return None;
-        }
-        match self.ind_binary_search(index, cut_down) {
-            Ok(idx) => {
-                unsafe {
-                    Some(ValueWithIndex {
-                        index,
-                        value: &*self.val_ptr().add(idx),
-                    })
-                }
-            },
-            Err(_) => {
-                Some(ValueWithIndex {
-                    index,
-                    value: &self.zero,
-                })
-            }
-        }
-    }
-
-    #[inline]
-    fn get_ind(&self, index: usize) -> Option<usize> {
-        if index >= self.nnz {
-            return None;
-        }
-        unsafe {
-            Some(ptr::read(self.ind_ptr().add(index)) as usize)
-        }
-    }
-
-
-
-    /// removeメソッド
-    /// 
-    /// `index` 番目の要素を削除し、削除した要素を返します。
-    /// - 論理インデックス `index` が物理的に存在すれば、その値を返す
-    /// - 物理的になければ（= デフォルト扱いだった）デフォルト値を返す
-    /// 
-    /// # Arguments
-    /// - `index` - 削除する要素の論理インデックス
-    /// 
-    /// # Returns
-    /// - `N` - 削除した要素の値
-    #[inline]
-    fn remove(&mut self, index: usize) -> N {
-        debug_assert!(index < self.len, "index out of bounds");
-        
-        // 論理的な要素数は常に1つ減る
-        self.len -= 1;
-
-        match self.ind_binary_search(index, 0) {
-            Ok(i) => {
-                // 今回削除する要素を読みだす
-                let removed_val = unsafe {
-                    ptr::read(self.val_ptr().add(i))
-                };
-
-                // `i` 番目を削除するので、後ろを前にシフト
-                let count = self.nnz - i - 1;
-                if count > 0 {
-                    unsafe {
-                        // 値をコピーして前につめる
-                        ptr::copy(
-                            self.val_ptr().add(i + 1),
-                            self.val_ptr().add(i),
-                            count
-                        );
-                        // インデックスもコピーして前につめる
-                        ptr::copy(
-                            self.ind_ptr().add(i + 1),
-                            self.ind_ptr().add(i),
-                            count
-                        );
-                        // シフトした後のインデックスは全て -1
-                        for offset in i..(self.nnz - 1) {
-                            *self.ind_ptr().add(offset) -= 1;
-                        }
-                    }
-                }
-                // nnzは 1 減
-                self.nnz -= 1;
-
-                // 取り除いた要素を返す
-                removed_val
-            }
-            Err(i) => {
-                // index は詰める必要があるので、i 以降の要素のインデックスを -1
-                // (たとえば “要素自体は無い” けど、後ろにある要素は
-                //  論理インデックスが 1 つ前になる)
-                if i < self.nnz {
-                    unsafe {
-                        for offset in i..self.nnz {
-                            *self.ind_ptr().add(offset) -= 1;
-                        }
-                    }
-                }
-
-                // 0返す
-                N::zero()
-            }
-        }
-    }
-
-    /// ベクトルをVecから構築します
-    #[inline]
-    fn from_vec(vec: Vec<N>) -> Self {
-        let mut zero_sp_vec = ZeroSpVec::with_capacity(vec.len());
-        for entry in vec {
-            zero_sp_vec.push(entry);
-        }
-        zero_sp_vec
-    }
-
-    /// (idx, value)のイテレータから構築します
-    /// これはfrom_sparse_iterと異なり、0要素も含めて構築します
-    #[inline]
-    unsafe fn from_raw_iter(iter: impl Iterator<Item = (usize, N)>, len: usize) -> Self {
-        let mut zero_sp_vec = ZeroSpVec::with_capacity(iter.size_hint().0);
-        for (index, value) in iter {
-            unsafe {
-                zero_sp_vec.raw_push(index, value);
-            }
-        }
-        zero_sp_vec.len = len;
-        zero_sp_vec.shrink_to_fit();
-        zero_sp_vec
-    }
-
-    /// (idx, value)のイテレータから構築します
-    /// これは0要素を自動でスキップします
-    #[inline]
-    unsafe fn from_sparse_iter(iter: impl Iterator<Item = (usize, N)>, len: usize) -> Self {
-        let mut zero_sp_vec = ZeroSpVec::with_capacity(iter.size_hint().0);
-        for (index, value) in iter {
-            if value != N::zero() {
-                unsafe {
-                    zero_sp_vec.raw_push(index, value);
-                }
-            }
-        }
-        zero_sp_vec.len = len;
-        zero_sp_vec.shrink_to_fit();
-        zero_sp_vec
-    }
-
-    /// イテレータを返す
-    /// これはVecと同様に0要素も含めて返す
-    #[inline]
-    fn iter(&self) -> ZeroSpVecIter<'_, N> {
-        ZeroSpVecIter {
-            vec: self,
-            pos: 0,
-        }
-    }
-
-    /// 生イテレータを返す
-    /// これは0要素を含めず、実際に格納されている(idx, value)ペアのみを返す
-    #[inline]
-    fn raw_iter(&self) -> ZeroSpVecRawIter<'_, N> {
-        ZeroSpVecRawIter {
-            vec: self,
-            pos: 0,
-        }
-    }
-}
-
-unsafe impl <N: Num + Send> Send for ZeroSpVec<N> {}
-unsafe impl <N: Num + Sync> Sync for ZeroSpVec<N> {}
-
-impl<N> Clone for ZeroSpVec<N> 
-where N: Num
-{
-    #[inline]
-    fn clone(&self) -> Self {
-        ZeroSpVec {
-            buf: self.buf.clone(),
-            len: self.len,
-            nnz: self.nnz,
-            zero: N::zero(),
-        }
-    }
-}
-
-impl<N> Drop for ZeroSpVec<N> 
-where N: Num
-{
-    #[inline]
-    fn drop(&mut self) {
-        // RawZeroSpVecで実装済み
-    }
-}
-
-impl<N> Default for ZeroSpVec<N> 
-where N: Num
-{
-    #[inline]
-    fn default() -> Self {
-        ZeroSpVec::new()
-    }
-}
-
-impl<N> Index<usize> for ZeroSpVec<N> 
-where N: Num
-{
-    type Output = N;
-
-    #[inline]
-    fn index(&self, index: usize) -> &Self::Output {
-        self.get(index).expect("index out of bounds")
-    }
-}
-
-impl<N: Num + Debug> Debug for ZeroSpVec<N> {
-    #[inline]
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if f.sign_plus() {
-            f.debug_struct("DefaultSparseVec")
-                .field("buf", &self.buf)
-                .field("nnz", &self.nnz)
-                .field("len", &self.len)
-                .field("zero", &self.zero)
-                .finish()
-        } else if f.alternate() {
-            write!(f, "ZeroSpVec({:?})", self.iter().collect::<Vec<&N>>())
-        } else {
-            f.debug_list().entries((0..self.len).map(|i| self.get(i).unwrap())).finish()
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-pub struct ZeroSpVecIter<'a, N> 
-where N: Num
-{
-    vec: &'a ZeroSpVec<N>,
-    pos: usize,
-}
-
-impl<'a, N> Iterator for ZeroSpVecIter<'a, N> 
-where N: Num
-{
-    type Item = &'a N;
-
-    #[inline]
-    fn next(&mut self) -> Option<Self::Item> {
-        self.vec.get(self.pos).map(|val| {
-            self.pos += 1;
-            val
-        })
-    }
-}
-
-#[derive(Clone, Copy)]
-pub struct ZeroSpVecRawIter<'a, N> 
-where N: Num
-{
-    vec: &'a ZeroSpVec<N>,
-    pos: usize,
-}
-
-impl<'a, N> Iterator for ZeroSpVecRawIter<'a, N> 
-where N: Num
-{
-    type Item = (usize, &'a N);
-
-    #[inline]
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.pos < self.vec.nnz() {
-            let index = unsafe { *self.vec.ind_ptr().add(self.pos) as usize };
-            let value = unsafe { &*self.vec.val_ptr().add(self.pos) };
-            self.pos += 1;
-            Some((index, value))
+        if l < nnz && ind[l] == target {
+            Some((val[l], l))
         } else {
             None
         }
     }
-
-    #[inline]
-    fn nth(&mut self, n: usize) -> Option<Self::Item> {
-        let nnz = self.vec.nnz();
-        match self.pos.checked_add(n) {
-            Some(new_pos) if new_pos < nnz => {
-                self.pos = new_pos;
-                self.next()
-            }
-            _ => {
-                self.pos = nnz;
+    fn get_power_jump(&self, target: u32, cut_down: &mut usize) -> Option<N>
+    where
+        N: Copy,
+    {
+        unsafe {
+            if let Some((v, idx)) = self.power_jump_search(target, *cut_down) {
+                *cut_down = idx;
+                Some(v)
+            } else {
                 None
             }
+        }
+    }
+    fn as_val_slice(&self) -> &[N] {
+        unsafe { core::slice::from_raw_parts(self.val_ptr(), self.nnz() as usize) }
+    }
+    fn as_ind_slice(&self) -> &[u32] {
+        unsafe { core::slice::from_raw_parts(self.ind_ptr(), self.nnz() as usize) }
+    }
+}
+
+impl<N> TFVectorTrait<N> for TFVector<N> 
+where N: Num + Copy
+{
+    fn new() -> Self {
+        Self::low_new()
+    }
+
+    fn new_with_capacity(capacity: u32) -> Self {
+        let mut vec = Self::low_new();
+        if capacity != 0 {
+            vec.set_cap(capacity);
+        }
+        vec
+    }
+
+    #[inline]
+    fn shrink_to_fit(&mut self) {
+        if self.nnz < self.cap {
+            self.set_cap(self.nnz);
+        }
+    }
+
+    #[inline]
+    fn raw_iter(&self) -> RawTFVectorIter<'_, N> {
+        RawTFVectorIter {
+            vec: self,
+            pos: 0,
+            end: self.nnz,
+        }
+    }
+
+    #[inline]
+    fn nnz(&self) -> u32 {
+        self.nnz
+    }
+
+    #[inline]
+    fn len(&self) -> u32 {
+        self.len
+    }
+
+    fn term_sum(&self) -> u32 {
+        self.term_sum
+    }
+
+    unsafe fn from_vec(mut ind_vec: Vec<u32>, mut val_vec: Vec<N>, len: u32, term_sum: u32) -> Self {
+        debug_assert_eq!(
+            ind_vec.len(),
+            val_vec.len(),
+            "ind_vec and val_vec must have the same length"
+        );
+
+        // sort
+        crate::utils::sort::radix_sort_u32_soa(&mut ind_vec, &mut val_vec);
+
+        let nnz = ind_vec.len() as u32;
+
+        if nnz == 0 {
+            let mut v = TFVector::low_new();
+            v.len = len;
+            v.term_sum = term_sum;
+            return v;
+        }
+
+        // Consume the Vecs and avoid an extra copy:
+        // Vec -> Box<[T]> guarantees allocation sized to exactly `len`,
+        // which matches `Layout::array::<T>(nnz)` used by `free_alloc()`.
+        let inds_box: Box<[u32]> = ind_vec.into_boxed_slice();
+        let vals_box: Box<[N]> = val_vec.into_boxed_slice();
+
+        let inds_ptr = Box::into_raw(inds_box) as *mut u32;
+        let vals_ptr = Box::into_raw(vals_box) as *mut N;
+
+        TFVector {
+            inds: unsafe { NonNull::new_unchecked(inds_ptr) },
+            vals: unsafe { NonNull::new_unchecked(vals_ptr) },
+            cap: nnz,
+            nnz,
+            len,
+            term_sum,
+        }
+    }
+
+    unsafe fn ind_ptr(&self) -> *mut u32 {
+        self.inds.as_ptr()
+    }
+
+    unsafe fn val_ptr(&self) -> *mut N {
+        self.vals.as_ptr()
+    }
+}
+
+
+pub struct RawTFVectorIter<'a, N>
+where
+    N: Num + 'a,
+{
+    vec: &'a TFVector<N>,
+    pos: u32, // front
+    end: u32, // back (exclusive)
+}
+
+impl<'a, N> RawTFVectorIter<'a, N>
+where
+    N: Num + 'a,
+{
+    #[inline]
+    pub fn new(vec: &'a TFVector<N>) -> Self {
+        Self { vec, pos: 0, end: vec.nnz }
+    }
+}
+
+impl<'a, N> Iterator for RawTFVectorIter<'a, N>
+where
+    N: Num + 'a + Copy,
+{
+    type Item = (u32, N);
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.pos >= self.end {
+            return None;
+        }
+        unsafe {
+            let i = self.pos as usize;
+            self.pos += 1;
+            let ind = *self.vec.inds.as_ptr().add(i);
+            let val = *self.vec.vals.as_ptr().add(i);
+            Some((ind, val))
         }
     }
 
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let remaining = self.vec.nnz().saturating_sub(self.pos);
+        let remaining = (self.end - self.pos) as usize;
         (remaining, Some(remaining))
     }
-
 }
 
-impl<'a, N> ExactSizeIterator for ZeroSpVecRawIter<'a, N>
+impl<'a, N> DoubleEndedIterator for RawTFVectorIter<'a, N>
 where
-    N: Num,
+    N: Num + 'a + Copy,
+{
+    #[inline]
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if self.pos >= self.end {
+            return None;
+        }
+        self.end -= 1;
+        unsafe {
+            let i = self.end as usize;
+            let ind = *self.vec.inds.as_ptr().add(i);
+            let val = *self.vec.vals.as_ptr().add(i);
+            Some((ind, val))
+        }
+    }
+}
+
+impl<'a, N> ExactSizeIterator for RawTFVectorIter<'a, N>
+where
+    N: Num + 'a + Copy,
 {
     #[inline]
     fn len(&self) -> usize {
-        self.vec.nnz().saturating_sub(self.pos)
+        (self.end - self.pos) as usize
     }
 }
 
-impl<'a, N> std::iter::FusedIterator for ZeroSpVecRawIter<'a, N>
+impl<'a, N> FusedIterator for RawTFVectorIter<'a, N>
 where
-    N: Num,
-{
-}
-
-impl<T> From<Vec<T>> for ZeroSpVec<T>
-where T: Num
-{
-    #[inline]
-    fn from(vec: Vec<T>) -> Self {
-        ZeroSpVec::from_vec(vec)
-    }
-}
-
-impl<'a, N> From<ZeroSpVecRawIter<'a, N>> for ZeroSpVec<N>
-where
-    N: Num + Copy,
-{
-    #[inline]
-    fn from(iter: ZeroSpVecRawIter<'a, N>) -> Self {
-        let mut vec = ZeroSpVec::new();
-        for (idx, val) in iter {
-            unsafe {
-                vec.raw_push(idx, *val);
-            }
-            vec.len += 1;
-        }
-        vec
-    }
-}
-
-
-
-
-
-
-
-
+    N: Num + 'a + Copy,
+{}
 
 /// ZeroSpVecの生実装
 #[derive(Debug)]
-struct RawZeroSpVec<N> 
-where N: Num 
-{
-    val_ptr: NonNull<N>,
-    ind_ptr: NonNull<u32>,
-    /// cap 定義
-    /// 0 => メモリ未確保 (flag)
-    /// usize::MAX =>  zero size struct (ZST) として定義 処理の簡略化を実施 (flag)
-    /// _ => 実際のcapN
-    cap: usize,
-    _marker: PhantomData<N>, // 所有権管理用にPhantomDataを追加
-}
-
-impl<N> RawZeroSpVec<N> 
+pub struct TFVector<N> 
 where N: Num
 {
-    #[inline]
-    fn new() -> Self {
-        // zero size struct (ZST)をusize::MAXと定義 ある種のフラグとして使用
-        let cap = if mem::size_of::<N>() == 0 { std::usize::MAX } else { 0 }; 
+    inds: NonNull<u32>,
+    vals: NonNull<N>,
+    cap: u32,
+    nnz: u32,
+    len: u32,
+    /// sum of terms of this document
+    /// denormalize number for this document
+    /// for reverse calculation to get term counts from tf values
+    term_sum: u32, // for future use
+}
 
-        RawZeroSpVec {
-            // 空のポインタを代入しておく メモリ確保を遅延させる
-            val_ptr: NonNull::dangling(),
-            // 空のポインタを代入しておく メモリ確保を遅延させる
-            ind_ptr: NonNull::dangling(),
-            cap: cap,
-            _marker: PhantomData,
+/// Low Level Implementation
+impl<N> TFVector<N> 
+where N: Num
+{
+    const VAL_SIZE: usize = mem::size_of::<N>();
+
+    #[inline]
+    fn low_new() -> Self {
+        // ZST は許さん
+        debug_assert!(Self::VAL_SIZE != 0, "Zero-sized type is not supported for TFVector");
+
+        TFVector {
+            // ダングリングポインタで初期化
+            inds: NonNull::dangling(),
+            vals: NonNull::dangling(),
+            cap: 0,
+            nnz: 0,
+            len: 0,
+            term_sum: 0,
         }
     }
 
+
     #[inline]
+    #[allow(dead_code)]
     fn grow(&mut self) {
-        unsafe {
-            let val_elem_size = mem::size_of::<N>();
-            let ind_elem_size = mem::size_of::<u32>();
+        let new_cap = if self.cap == 0 {
+            1
+        } else {
+            self.cap.checked_mul(2).expect("TFVector capacity overflowed")
+        };
 
-            // 安全性: ZSTの場合growはcapを超えた場合にしか呼ばれない
-            // これは必然的にオーバーフローしていることをしめしている
-            debug_assert!(val_elem_size != 0, "capacity overflow");
+        self.set_cap(new_cap);
+    }
 
-            // アライメントの取得 適切なメモリ確保を行うため
-            let t_align = mem::align_of::<N>();
-            let usize_align = mem::align_of::<u32>();
+    #[inline]
+    fn set_cap(&mut self, new_cap: u32) {
+        if new_cap == 0 {
+            // キャパシティを0にする場合はメモリを解放する
+            self.free_alloc();
+            return;
+        }
+        let new_inds_layout = Layout::array::<u32>(new_cap as usize).expect("Failed to create inds memory layout");
+        let new_vals_layout = Layout::array::<N>(new_cap as usize).expect("Failed to create vals memory layout");
 
-            // アロケーション
-            let (new_cap, val_ptr, ind_ptr): (usize, *mut N, *mut u32) = 
-                if self.cap == 0 {
-                    let new_val_layout = Layout::from_size_align(val_elem_size, t_align).expect("Failed to create memory layout");
-                    let new_ind_layout = Layout::from_size_align(ind_elem_size, usize_align).expect("Failed to create memory layout");
-                    (
-                        1,
-                        alloc(new_val_layout) as *mut N,
-                        alloc(new_ind_layout) as *mut u32,
-                    )
+        if self.cap == 0 {
+            let new_inds_ptr = unsafe { std::alloc::alloc(new_inds_layout) };
+            let new_vals_ptr = unsafe { std::alloc::alloc(new_vals_layout) };
+            if new_inds_ptr.is_null() || new_vals_ptr.is_null() {
+                if new_inds_ptr.is_null() {
+                    oom(new_inds_layout);
                 } else {
-                    // 効率化: cap * 2 でメモリを確保する 見た目上はO(log n)の増加を実現
-                    let new_cap = self.cap * 2;
-                    let new_val_layout = Layout::from_size_align(val_elem_size * self.cap, t_align).expect("Failed to create memory layout for reallocation");
-                    let new_ind_layout = Layout::from_size_align(ind_elem_size * self.cap, usize_align).expect("Failed to create memory layout for reallocation");
-                    (
-                        new_cap,
-                        realloc(self.val_ptr.as_ptr() as *mut u8, new_val_layout, val_elem_size * new_cap) as *mut N,
-                        realloc(self.ind_ptr.as_ptr() as *mut u8, new_ind_layout, ind_elem_size * new_cap) as *mut u32,
-                    )
-                };
-
-            // アロケーション失敗時の処理
-            if val_ptr.is_null() || ind_ptr.is_null() {
-                oom();
+                    oom(new_vals_layout);
+                }
             }
 
-            // selfに返却
-            self.val_ptr = NonNull::new_unchecked(val_ptr);
-            self.ind_ptr = NonNull::new_unchecked(ind_ptr);
+            self.inds = unsafe { NonNull::new_unchecked(new_inds_ptr as *mut u32) };
+            self.vals = unsafe { NonNull::new_unchecked(new_vals_ptr as *mut N) };
+            self.cap = new_cap;
+        } else {
+            let old_inds_layout = Layout::array::<u32>(self.cap as usize).expect("Failed to create old inds memory layout");
+            let old_vals_layout = Layout::array::<N>(self.cap as usize).expect("Failed to create old vals memory layout");
+
+            let new_inds_ptr = unsafe { std::alloc::realloc(
+                self.inds.as_ptr().cast::<u8>(),
+                old_inds_layout,
+                new_inds_layout.size(),
+            ) };
+            let new_vals_ptr = unsafe { std::alloc::realloc(
+                self.vals.as_ptr().cast::<u8>(),
+                old_vals_layout,
+                new_vals_layout.size(),
+            ) };
+            if new_inds_ptr.is_null() || new_vals_ptr.is_null() {
+                if new_inds_ptr.is_null() {
+                    oom(new_inds_layout);
+                } else {
+                    oom(new_vals_layout);
+                }
+            }
+
+            self.inds = unsafe { NonNull::new_unchecked(new_inds_ptr as *mut u32) };
+            self.vals = unsafe { NonNull::new_unchecked(new_vals_ptr as *mut N) };
             self.cap = new_cap;
         }
     }
-    
-    #[inline]
-    fn cap_set(&mut self) {
-        unsafe {
-            let val_elem_size = mem::size_of::<N>();
-            let ind_elem_size = mem::size_of::<u32>();
-
-            let t_align = mem::align_of::<N>();
-            let usize_align = mem::align_of::<u32>();
-
-            let new_val_layout = Layout::from_size_align(val_elem_size * self.cap, t_align).expect("Failed to create memory layout");
-            let new_ind_layout = Layout::from_size_align(ind_elem_size * self.cap, usize_align).expect("Failed to create memory layout");
-            let new_val_ptr = alloc(new_val_layout) as *mut N;
-            let new_ind_ptr = alloc(new_ind_layout) as *mut u32;
-            if new_val_ptr.is_null() || new_ind_ptr.is_null() {
-                oom();
-            }
-            self.val_ptr = NonNull::new_unchecked(new_val_ptr);
-            self.ind_ptr = NonNull::new_unchecked(new_ind_ptr);
-        }
-    }
 
     #[inline]
-    fn re_cap_set(&mut self, old_cap: usize) {
-        unsafe {
-            // ZST/未確保はrealloc対象外
-            debug_assert!(old_cap != 0 && old_cap != usize::MAX);
-            debug_assert!(self.cap != usize::MAX);
-
-            let val_elem_size = mem::size_of::<N>();
-            let ind_elem_size = mem::size_of::<u32>();
-
-            let t_align = mem::align_of::<N>();
-            let usize_align = mem::align_of::<u32>();
-
-            // reallocの第2引数は古いレイアウト
-            let old_val_layout =
-                Layout::from_size_align(val_elem_size * old_cap, t_align).expect("old val layout");
-            let old_ind_layout =
-                Layout::from_size_align(ind_elem_size * old_cap, usize_align).expect("old ind layout");
-
-            let new_val_size = val_elem_size * self.cap;
-            let new_ind_size = ind_elem_size * self.cap;
-
-            let new_val_ptr =
-                realloc(self.val_ptr.as_ptr() as *mut u8, old_val_layout, new_val_size) as *mut N;
-            let new_ind_ptr =
-                realloc(self.ind_ptr.as_ptr() as *mut u8, old_ind_layout, new_ind_size) as *mut u32;
-
-            if new_val_ptr.is_null() || new_ind_ptr.is_null() {
-                oom();
+    fn free_alloc(&mut self) {
+        if self.cap != 0 {
+            unsafe {
+                let inds_layout = Layout::array::<u32>(self.cap as usize).unwrap();
+                let vals_layout = Layout::array::<N>(self.cap as usize).unwrap();
+                std::alloc::dealloc(self.inds.as_ptr().cast::<u8>(), inds_layout);
+                std::alloc::dealloc(self.vals.as_ptr().cast::<u8>(), vals_layout);
             }
-
-            self.val_ptr = NonNull::new_unchecked(new_val_ptr);
-            self.ind_ptr = NonNull::new_unchecked(new_ind_ptr);
         }
+        self.inds = NonNull::dangling();
+        self.vals = NonNull::dangling();
+        self.cap = 0;
     }
 }
 
-impl<N> Clone for RawZeroSpVec<N> 
-where N: Num
-{
-    #[inline]
-    fn clone(&self) -> Self {
-        unsafe {
-            // If cap == 0 (no allocation) or cap == usize::MAX (ZST marker),
-            // return a dangling-pointer RawZeroSpVec without allocating.
-            if self.cap == 0 || self.cap == usize::MAX {
-                return RawZeroSpVec {
-                    val_ptr: NonNull::dangling(),
-                    ind_ptr: NonNull::dangling(),
-                    cap: self.cap,
-                    _marker: PhantomData,
-                };
-            }
+unsafe impl<N: Num + Send + Sync> Send for TFVector<N> {}
+unsafe impl<N: Num + Sync> Sync for TFVector<N> {}
 
-            let val_elem_size = mem::size_of::<N>();
-            let ind_elem_size = mem::size_of::<u32>();
-
-            let t_align = mem::align_of::<N>();
-            let usize_align = mem::align_of::<u32>();
-
-            let new_val_layout = Layout::from_size_align(val_elem_size * self.cap, t_align).expect("Failed to create memory layout");
-            let new_ind_layout = Layout::from_size_align(ind_elem_size * self.cap, usize_align).expect("Failed to create memory layout");
-            let new_val_ptr = alloc(new_val_layout) as *mut N;
-            let new_ind_ptr = alloc(new_ind_layout) as *mut u32;
-            if new_val_ptr.is_null() || new_ind_ptr.is_null() {
-                oom();
-            }
-            ptr::copy_nonoverlapping(self.val_ptr.as_ptr(), new_val_ptr, self.cap);
-            ptr::copy_nonoverlapping(self.ind_ptr.as_ptr(), new_ind_ptr, self.cap);
-
-            RawZeroSpVec {
-                val_ptr: NonNull::new_unchecked(new_val_ptr),
-                ind_ptr: NonNull::new_unchecked(new_ind_ptr),
-                cap: self.cap,
-                _marker: PhantomData,
-            }
-        }
-    }
-}
-
-unsafe impl<N: Num + Send> Send for RawZeroSpVec<N> {}
-unsafe impl<N: Num + Sync> Sync for RawZeroSpVec<N> {}
-
-impl<N> Drop for RawZeroSpVec<N> 
+impl<N> Drop for TFVector<N> 
 where N: Num
 {
     #[inline]
     fn drop(&mut self) {
-        unsafe {
-            // If no allocation was performed (cap == 0) or this is a ZST marker (usize::MAX), skip deallocation.
-            if self.cap == 0 || self.cap == usize::MAX {
-                return;
-            }
-
-            let val_elem_size = mem::size_of::<N>();
-            let ind_elem_size = mem::size_of::<u32>();
-
-            let t_align = mem::align_of::<N>();
-            let usize_align = mem::align_of::<u32>();
-
-            let new_val_layout = Layout::from_size_align(val_elem_size * self.cap, t_align).expect("Failed to create memory layout");
-            let new_ind_layout = Layout::from_size_align(ind_elem_size * self.cap, usize_align).expect("Failed to create memory layout");
-            dealloc(self.val_ptr.as_ptr() as *mut u8, new_val_layout);
-            dealloc(self.ind_ptr.as_ptr() as *mut u8, new_ind_layout);
-        }
+        self.free_alloc();
     }
 }
+
+impl<N> Clone for TFVector<N>
+where
+    N: Num + Copy,
+{
+    #[inline]
+    fn clone(&self) -> Self {
+        let mut new_vec = TFVector::low_new();
+        if self.nnz > 0 {
+            new_vec.set_cap(self.nnz);
+            new_vec.len = self.len;
+            new_vec.nnz = self.nnz;
+            new_vec.term_sum = self.term_sum;
+
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    self.inds.as_ptr(),
+                    new_vec.inds.as_ptr(),
+                    self.nnz as usize,
+                );
+                std::ptr::copy_nonoverlapping(
+                    self.vals.as_ptr(),
+                    new_vec.vals.as_ptr(),
+                    self.nnz as usize,
+                );
+            }
+        }
+        new_vec
+    }
+}
+
+
 
 /// OutOfMemoryへの対処用
 /// プロセスを終了させる
@@ -881,6 +446,7 @@ where N: Num
 /// 仕方なく強制終了させる
 /// 本来OOMはOSにより管理され発生前にKillされるはずなのであんまり意味はない。
 #[cold]
-fn oom() {
-    ::std::process::exit(-9999);
+#[inline(never)]
+fn oom(layout: Layout) -> ! {
+    std::alloc::handle_alloc_error(layout)
 }

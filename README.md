@@ -50,17 +50,17 @@ tf-idf-vectorizer = "0.9"  # 本READMEは `v0.9.x` 向け
 ```rust
 use std::sync::Arc;
 
-use tf_idf_vectorizer::{Corpus, SimilarityAlgorithm, TFIDFVectorizer, TokenFrequency, vectorizer::evaluate::query::Query};
+use tf_idf_vectorizer::{Corpus, SimilarityAlgorithm, TFIDFVectorizer, termFrequency, vectorizer::evaluate::query::Query};
 
 fn main() {
     // build corpus
     let corpus = Arc::new(Corpus::new());
 
-    // make token frequencies
-    let mut freq1 = TokenFrequency::new();
-    freq1.add_tokens(&["rust", "高速", "並列", "rust"]);
-    let mut freq2 = TokenFrequency::new();
-    freq2.add_tokens(&["rust", "柔軟", "安全", "rust"]);
+    // make term frequencies
+    let mut freq1 = termFrequency::new();
+    freq1.add_terms(&["rust", "高速", "並列", "rust"]);
+    let mut freq2 = termFrequency::new();
+    freq2.add_terms(&["rust", "柔軟", "安全", "rust"]);
 
     // add documents to vectorizer
     let mut vectorizer: TFIDFVectorizer<u16> = TFIDFVectorizer::new(corpus);    
@@ -70,7 +70,7 @@ fn main() {
     vectorizer.add_doc("doc3".to_string(), &freq1);
 
     // build query
-    let query = Query::and(Query::token("rust"), Query::token("安全"));
+    let query = Query::and(Query::term("rust"), Query::term("安全"));
     let algorithm = SimilarityAlgorithm::CosineSimilarity;
     let mut result = vectorizer.search(&algorithm, query);
     result.sort_by_score_desc();
@@ -84,7 +84,7 @@ fn main() {
 ```
 
 ## パフォーマンス指針
-- トークン辞書 (token_dim_sample / token_dim_set) は再構築を避けキャッシュ
+- トークン辞書 (term_dim_sample / term_dim_set) は再構築を避けキャッシュ
 - TF スパース化でゼロ省略
 - 整数スケール型 (u16/u32) を使うとメモリ圧縮 (正規化時は 1/max 乗算のみ 演算はfloatのほうが少し高速です)
 - 逆Indexを即時生成
@@ -98,7 +98,7 @@ maxはcorpusの出現最大語
 
 [他テスト結果はこちら](doc-search-test.md)
 
-精度はまちまちです。 tokenizeや類似度アルゴリズムに大きく影響を受ける
+精度はまちまちです。 termizeや類似度アルゴリズムに大きく影響を受ける
 ```
 > Rust
 Found 465 results in 4 ms.
@@ -144,7 +144,7 @@ score: 0.003666 doc_len: 4533   key: "4981263_ウェルド_ライブ・イン・
 | 型 | 役割 |
 |----|------|
 | Corpus | 文書集合メタ/頻度取得 |
-| TokenFrequency | 単一文書内のトークン頻度 |
+| termFrequency | 単一文書内のトークン頻度 |
 | TFVector | 1 文書の TF スパースベクトル |
 | IDFVector | 全体 IDF とメタ |
 | TFIDFVectorizer | TF/IDF 管理と検索入口 |
