@@ -1,10 +1,9 @@
 <div align="center">
 <h1 style="font-size: 50px">TF‑IDF-Vectorizer</h1>
 <p>Rust製の 圧倒的柔軟/高速 な文章解析エンジン</p>
-<h2>> <a href="https://docs.rs/tf-idf-vectorizer/latest/tf_idf_vectorizer/index.html">docs.rs</a> <</h2>
 </div>
 
-
+<h2>> <a href="https://docs.rs/tf-idf-vectorizer/latest/tf_idf_vectorizer/index.html">docs.rs</a> <</h2>
  
 コーパス構築 → TF 計算 → IDF 計算 → TF-IDF ベクトル化 / 類似度検索 までを一通りサポート。
 
@@ -46,7 +45,14 @@ tf-idf-vectorizer = "0.10"  # 本READMEは `v0.9.x` 向け
 ```
 
 ## 基本的な使い方
+以下に使用できます
+- 単語頻度解析
+- 文書検索
+- 類似度比較
 
+上記を文書ごと、もしくは文書集合に対して様々なオプションで扱えます
+
+eg. cos 類似度 論理クエリ検索
 ```rust
 use std::sync::Arc;
 
@@ -83,10 +89,22 @@ fn main() {
 }
 ```
 
+```
+ cargo run --example basic                                                                                                                                                                                                                                                                                                                                                                                                                               
+   Compiling tf-idf-vectorizer v0.10.0 (I:\RustBuilds\tf-idf-vectorizer)                                                                                                                                                                                                                                                                                                                                                                                  
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.60s                                                                                                                                                                                                                                                                                                                                                                                   
+     Running `target\debug\examples\basic.exe`
+Search Results: 
+score: 0.768706 doc_len: 4      key: "doc2"
+
+result count: 1
+... debug略
+```
+
 ## パフォーマンス指針
 - トークン辞書 (term_dim_sample / term_dim_set) は再構築を避けキャッシュ
 - TF スパース化でゼロ省略
-- 整数スケール型 (u16/u32) を使うとメモリ圧縮 (正規化時は 1/max 乗算のみ 演算はfloatのほうが少し高速です)
+- 整数スケール型 (f16/u16) を使うとメモリ圧縮 (f16はsqrtで圧縮 u16は大規模文書でダメになる場合あり)
 - 逆Indexを即時生成
 
 実測値でWikipediaJP全記事の全文検索(2.3M docs)の記事の単一クエリ検索において  
@@ -157,5 +175,9 @@ score: 0.003570 doc_len: 3801   key: "3088_Linuxカーネル.json"
 
 ## 例 (examples/)
 `cargo run --example basic` で最小例を実行。  
+
+# Todo
+- [x] 十分なパフォーマンス最適化
+- [ ] Reverse Indexのメモリ展開でページアウトできるように
 
 # 貢献はプルリクで(。-`ω-)
