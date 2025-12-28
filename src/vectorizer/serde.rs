@@ -7,9 +7,23 @@ use serde::{ser::SerializeStruct, Deserialize, Serialize};
 
 use crate::{Corpus, TFIDFVectorizer, utils::datastruct::{map::IndexMap, vector::TFVectorTrait}, vectorizer::{IDFVector, KeyRc, TFVector, tfidf::{DefaultTFIDFEngine, TFIDFEngine}}};
 
-/// Data structure for deserializing TFIDFVectorizer.
-/// This struct does not contain references, so it can be serialized.
-/// Use the `into_tf_idf_vectorizer` method to convert to `TFIDFVectorizer`.
+/// TF-IDF Vectorizer Data Structure (Corpus-free)
+///
+/// A compact, serializable representation of a TF-IDF vectorizer.
+///
+/// Unlike [`TFIDFVectorizer`], this struct does **not** hold a `Corpus` reference.
+/// It can be converted back into a `TFIDFVectorizer` by providing an `Arc<Corpus>`.
+///
+/// ### Use Cases
+/// - Persistent storage
+/// - Network transfer
+/// - Memory-efficient snapshots
+///
+/// ### Serialization
+/// Supported.
+///
+/// ### Deserialization
+/// Supported, including internal data expansion.
 #[derive(Debug, Deserialize, Serialize)]
 pub struct TFIDFData<N = f32, K = String, E = DefaultTFIDFEngine>
 where
@@ -104,7 +118,6 @@ where
         {
             documents: IndexMap<KeyRc<K>, TFVector<N>>,
             term_dim_sample: Vec<Box<str>>,
-            #[serde(default, skip_deserializing)]
             corpus_ref: Arc<Corpus>,
         }
 

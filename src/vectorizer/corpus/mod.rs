@@ -5,7 +5,22 @@ use serde::{Deserialize, Serialize};
 
 use crate::TermFrequency;
 
-/// keep document count and term counts in a thread-safe way
+/// Corpus for TF-IDF Vectorizer
+///
+/// Manages global document-frequency statistics required for IDF calculation.
+///
+/// This struct does **not** store document text or identifiers.
+/// It only tracks:
+/// - Total number of documents
+/// - Number of documents containing each term
+///
+/// ### Thread Safety
+/// - Fully thread-safe
+/// - Implemented using `DashMap` and atomics
+///
+/// ### Notes
+/// - Must be shared via `Arc<Corpus>`
+/// - Can be reused across multiple vectorizers
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Corpus {
     /// corpus add_num

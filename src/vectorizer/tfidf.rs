@@ -4,7 +4,20 @@ use num_traits::{Num, Pow};
 use crate::{Corpus, TermFrequency, utils::datastruct::{map::IndexSet, vector::{TFVector, TFVectorTrait}}};
 
 
-
+/// TF-IDF Calculation Engine Trait
+///
+/// Defines the behavior of a TF-IDF calculation engine.
+///
+/// Custom engines can be implemented and plugged into
+/// [`TFIDFVectorizer`].
+///
+/// A default implementation, [`DefaultTFIDFEngine`], is provided.
+///
+/// ### Supported Numeric Types
+/// - `f16`
+/// - `f32`
+/// - `u16`
+/// - `u32`
 pub trait TFIDFEngine<N>: Send + Sync
 where
     N: Num + Copy
@@ -37,7 +50,6 @@ where
 }
 
 /// デフォルトのTF-IDFエンジン
-/// `f16`, `f32`, `f64`, `u32`, `u16`, `u8`の型に対応
 #[derive(Debug)]
 pub struct DefaultTFIDFEngine;
 impl DefaultTFIDFEngine {

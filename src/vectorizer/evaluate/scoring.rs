@@ -4,7 +4,15 @@ use num_traits::{pow::Pow, Num};
 
 use crate::{Query, TFIDFEngine, TFIDFVectorizer, TermFrequency, utils::{datastruct::vector::{TFVector, TFVectorTrait}}, vectorizer::KeyRc};
 
-/// Enum for similarity algorithms used in search queries
+/// Similarity Algorithm
+///
+/// Defines scoring algorithms used during search.
+///
+/// ### Variants
+/// - `Contains`: term containment check
+/// - `Dot`: Dot product (long documents)
+/// - `Cosine`: Cosine similarity (proper nouns)
+/// - `BM25Like`: BM25-inspired scoring
 #[derive(Clone)]
 pub enum SimilarityAlgorithm {
     /// Contains
@@ -23,7 +31,10 @@ pub enum SimilarityAlgorithm {
     BM25(f64, f64), // (k1, b)
 }
 
-/// Structure to store search results
+/// Search Results
+///
+/// - `Hits`: A collection of ranked search results
+/// - `HitEntry`: A single search result entry
 #[derive(Clone, Default)]
 pub struct Hits<K> 
 {
@@ -31,10 +42,14 @@ pub struct Hits<K>
     pub list: Vec<HitEntry<K>>, // (key, score, document term sum)
 }
 
+/// Single Search Result Entry
 #[derive(Clone, Debug)]
 pub struct HitEntry<K> {
+    /// Document Key
     pub key: K,
+    /// Similarity Score
     pub score: f64,
+    /// Document Length (term sum)
     pub doc_len: u32,
 }
 

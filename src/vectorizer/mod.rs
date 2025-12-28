@@ -18,6 +18,35 @@ use crate::Corpus;
 
 pub type KeyRc<K> = Rc<K>;
 
+/// TF-IDF Vectorizer
+///
+/// The top-level struct of this crate, providing the main TF-IDF vectorizer features.
+///
+/// It converts a document collection into TF-IDF vectors and supports similarity
+/// computation and search functionality.
+///
+/// ### Internals
+/// - Corpus vocabulary
+/// - Sparse TF vectors per document
+/// - term index mapping
+/// - Cached IDF vector
+/// - Pluggable TF-IDF engine
+/// - Inverted document index
+///
+/// ### Type Parameters
+/// - `N`: Vector parameter type (e.g., `f32`, `f64`, `u16`)
+/// - `K`: Document key type (e.g., `String`, `usize`)
+/// - `E`: TF-IDF calculation engine
+///
+/// ### Notes
+/// - Requires an `Arc<Corpus>` on construction
+/// - `Corpus` can be shared across multiple vectorizers
+///
+/// ### Serialization
+/// Supported.  
+/// Serialized data includes the `Corpus` reference.
+///
+/// For corpus-independent storage, use [`TFIDFData`].
 #[derive(Debug, Clone)]
 pub struct TFIDFVectorizer<N = f16, K = String, E = DefaultTFIDFEngine>
 where

@@ -10,6 +10,9 @@ pub enum QueryInner {
     Or(Box<QueryInner>, Box<QueryInner>),
 }
 
+/// Query Structure
+///
+/// Represents a search query with logical filtering conditions.
 #[derive(Clone, Debug)]
 pub struct Query {
     pub(crate) inner: QueryInner,

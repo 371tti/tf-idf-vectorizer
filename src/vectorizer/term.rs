@@ -6,10 +6,18 @@ use serde::{Deserialize, Serialize};
 use crate::Corpus;
 
 
-/// TermFrequency struct
-/// Manages the frequency of term occurrences.
-/// Counts the number of times each term appears.
+/// term Frequency Structure
 ///
+/// Manages per-document term statistics used for TF calculation.
+///
+/// Tracks:
+/// - term occurrence counts
+/// - Total term count in the document
+///
+/// ### Use Cases
+/// - TF calculation
+/// - term-level statistics
+/// 
 /// # Examples
 /// ```
 /// use crate::tf_idf_vectorizer::vectorizer::term::TermFrequency;
@@ -20,6 +28,7 @@ use crate::Corpus;
 ///
 /// assert_eq!(term_freq.term_count("term1"), 2);
 /// ```
+/// 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TermFrequency {
     term_count: HashMap<String, u64, RandomState>,
