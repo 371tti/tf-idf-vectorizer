@@ -5,10 +5,39 @@ pub struct BitMap {
     pub size: usize,
 }
 
+#[derive(Clone, Debug, Default)]
 pub struct L2Bits {
     pub bucket_map: u64,
     pub buckets: Box<[L1Bits]>,
 }
+
+impl BitAnd for &L2Bits {
+    type Output = L2Bits;
+
+    fn bitand(self, rhs: Self) -> Self::Output {
+        let mut result_buckets = Vec::new();
+        let mut result_map = 0u64;
+
+        let mut si = 0usize;
+        let mut ri = 0usize;
+
+        for idx in 0..64 {
+            let mask = 1u64 << idx;
+            let sh = (self.bucket_map & mask) != 0;
+            let rh = (rhs.bucket_map & mask) != 0;
+
+            if sh && rh {
+                result_map |= mask;
+                result_buckets.push(&self.buckets[si] & &rhs.buckets[ri]);
+            }
+            if sh { si += 1; }
+            if rh { ri += 1; }
+        }
+
+        L2Bits { bucket_map: result_map, buckets: result_buckets.into_boxed_slice() }
+    }
+}
+
 
 /// 8 x 64 = 512bits bucket
 #[derive(Clone, Copy, Debug, Default)]

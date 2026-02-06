@@ -183,7 +183,7 @@ where
     }
 
     #[inline]
-    pub fn insert(&mut self, key: K, value: V) -> Option<InsertResult<K, V>> {
+    pub fn insert(&mut self, key: K, value: V) -> InsertResult<K, V> {
         if let Some(idx) = self.index_set.table_get(&key) {
             // K が Rc の場合を考慮して すべて差し替える
             unsafe {
@@ -191,10 +191,11 @@ where
             }
             let old_value = Some(std::mem::replace(&mut self.values[idx], value));
             let old_key = Some(std::mem::replace(&mut self.index_set.keys[idx], key.clone()));
-            Some(InsertResult {
+            InsertResult::Override {
                 old_value: old_value.unwrap(),
                 old_key:  old_key.unwrap(),
-            })
+                index: idx,
+            }
         } else {
             // New key, insert entry
             let idx = self.values.len();
@@ -203,7 +204,9 @@ where
             }
             self.index_set.keys.push(key.clone());
             self.values.push(value);
-            None
+            InsertResult::New {
+                index: idx,
+            }
         }
     }
 
@@ -223,7 +226,7 @@ where
     }
 
     #[inline]
-    pub fn swap_remove<Q: ?Sized>(&mut self, key: &Q) -> Option<V> 
+    pub fn swap_remove<Q: ?Sized>(&mut self, key: &Q) -> RemoveResult<K, V>
     where 
         K: Borrow<Q>,
         Q: std::hash::Hash + Eq,
@@ -235,8 +238,11 @@ where
                 unsafe {
                     self.index_set.table_swap_remove(key);
                 }
-                self.index_set.keys.pop();
-                return Some(self.values.pop().unwrap());
+                return RemoveResult::Removed {
+                    old_value: self.values.pop().unwrap(),
+                    old_key: self.index_set.keys.pop().unwrap(),
+                    index: idx,
+                };
             } else {
                 let last_idx_key = self.index_set.keys[last_idx].clone();
                 unsafe {
@@ -250,10 +256,14 @@ where
                 // swap_remove ここで実際にtableのidxとvalues, keys, hashesの整合性が回復
                 let value = self.values.swap_remove(idx);
                 self.index_set.keys.swap_remove(idx);
-                Some(value)
+                RemoveResult::Removed { 
+                    old_value: value,
+                    old_key: last_idx_key,
+                    index: idx,
+                }
             }
         } else {
-            None
+            RemoveResult::None
         }
     }
 
@@ -389,9 +399,25 @@ where
 }
 
 #[derive(Debug, PartialEq)]
-pub struct InsertResult<K, V> {
-    pub old_value: V,
-    pub old_key: K,
+pub enum InsertResult<K, V> {
+    Override {
+        old_value: V,
+        old_key: K,
+        index: usize,
+    },
+    New {
+        index: usize,
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum RemoveResult<K, V> {
+    Removed {
+        old_value: V,
+        old_key: K,
+        index: usize,
+    },
+    None,
 }
 
 #[derive(Clone, Debug)]
@@ -404,7 +430,7 @@ pub struct IndexSet<K, S = ahash::RandomState> {
 
 impl<K, S> IndexSet<K, S>
 where
-    K: Eq + std::hash::Hash + Clone,
+    K: Eq + std::hash::Hash,
     S: std::hash::BuildHasher,
 {
     pub fn with_hasher(hash_builder: S) -> Self {
@@ -642,24 +668,6 @@ mod tests {
     }
 
     #[test]
-    fn basic_insert_get_overwrite() {
-        let mut m = M::new();
-
-        assert_eq!(m.insert(1, 10), None);
-        assert_eq!(m.insert(2, 20), None);
-        assert_eq!(m.get(&1).copied(), Some(10));
-        assert_eq!(m.get(&2).copied(), Some(20));
-
-        // overwrite
-        let old = m.insert(1, 99).unwrap();
-        assert_eq!(old.old_key, 1);
-        assert_eq!(old.old_value, 10);
-        assert_eq!(m.get(&1).copied(), Some(99));
-
-        assert_internal_invariants(&m);
-    }
-
-    #[test]
     fn swap_remove_last_and_middle() {
         let mut m = M::new();
         for i in 0..10 {
@@ -668,12 +676,20 @@ mod tests {
 
         // last remove
         let v = m.swap_remove(&9);
-        assert_eq!(v, Some(90));
+        assert_eq!(v, RemoveResult::Removed {
+            old_value: 90,
+            old_key: 9,
+            index: 9,
+        });
         assert!(m.get(&9).is_none());
 
         // middle remove
         let v = m.swap_remove(&3);
-        assert_eq!(v, Some(30));
+        assert_eq!(v, RemoveResult::Removed {
+            old_value: 30,
+            old_key: 3,
+            index: 3,
+        });
         assert!(m.get(&3).is_none());
 
         assert_internal_invariants(&m);
@@ -708,7 +724,11 @@ mod tests {
             if i % 3 == 0 {
                 let a = m.swap_remove(&i);
                 let b = o.remove(&i);
-                assert_eq!(a, b);
+                assert_eq!(a, RemoveResult::Removed {
+                    old_value: b.unwrap(),
+                    old_key: i,
+                    index: 0, // index はテストしない
+                });
             }
         }
 
@@ -746,10 +766,10 @@ mod tests {
                     let b = o.insert(k, v);
 
                     match (a, b) {
-                        (None, None) => {}
-                        (Some(ir), Some(old)) => {
-                            assert_eq!(ir.old_key, k);
-                            assert_eq!(ir.old_value, old);
+                        (InsertResult::New { .. }, None) => {}
+                        (InsertResult::Override { old_key, old_value, .. }, Some(old)) => {
+                            assert_eq!(old_key, k);
+                            assert_eq!(old_value, old);
                         }
                         _ => panic!("insert mismatch"),
                     }
@@ -758,7 +778,11 @@ mod tests {
                 60..=79 => {
                     let a = m.swap_remove(&k);
                     let b = o.remove(&k);
-                    assert_eq!(a, b);
+                    assert_eq!(a, RemoveResult::Removed {
+                        old_value: b.unwrap(),
+                        old_key: k,
+                        index: 0, // index はテストしない
+                    });
                 }
                 // get
                 80..=94 => {
@@ -806,7 +830,11 @@ mod tests {
         assert_internal_invariants(&m);
 
         let v = m.swap_remove(&42);
-        assert_eq!(v, Some(-7));
+        assert_eq!(v, RemoveResult::Removed {
+            old_value: -7,
+            old_key: 42,
+            index: 0,
+        });
         assert_eq!(m.len(), 0);
         assert!(m.get(&42).is_none());
         assert!(!m.contains_key(&42));
@@ -823,12 +851,16 @@ mod tests {
         m.insert(3, 30);
         assert_internal_invariants(&m);
 
-        assert_eq!(m.swap_remove(&2), Some(20));
+        assert_eq!(m.swap_remove(&2), RemoveResult::Removed {
+            old_value: 20,
+            old_key: 2,
+            index: 1,
+        });
         assert!(m.get(&2).is_none());
         assert_internal_invariants(&m);
 
         // 同じキーを再挿入しても table が壊れないこと
-        assert_eq!(m.insert(2, 200), None);
+        assert_eq!(m.insert(2, 200), InsertResult::New { index: 1 });
         assert_eq!(m.get(&2).copied(), Some(200));
         assert_internal_invariants(&m);
     }
@@ -857,8 +889,16 @@ mod tests {
         assert_internal_invariants(&m);
 
         // いくつか消して、内部順序が変わっても iter が keys/values と整合すること
-        assert_eq!(m.swap_remove(&0), Some(100));
-        assert_eq!(m.swap_remove(&5), Some(105));
+        assert_eq!(m.swap_remove(&0), RemoveResult::Removed {
+            old_value: 100,
+            old_key: 0,
+            index: 0,
+        });
+        assert_eq!(m.swap_remove(&5), RemoveResult::Removed {
+            old_value: 105,
+            old_key: 5,
+            index: 5,
+        });
         assert_internal_invariants(&m);
 
         let collected: Vec<(u64, i64)> = m.iter().map(|(k, v)| (*k, *v)).collect();

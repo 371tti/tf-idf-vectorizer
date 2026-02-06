@@ -1,4 +1,4 @@
-use crate::{TermFrequency, utils::datastruct::map::{IndexMap, IndexSet}, vectorizer::KeyRc};
+use crate::{TermFrequency, utils::datastruct::map::{IndexMap, IndexSet}};
 
 #[derive(Clone, Debug)]
 pub enum QueryInner {
@@ -103,7 +103,7 @@ impl Query {
         }
     }
 
-    pub(crate) fn build_ref<K>(query: &QueryInner, term_dim_rev_index: &IndexMap<Box<str>, Vec<KeyRc<K>>>, documents: &IndexSet<KeyRc<K>>) -> Vec<usize> 
+    pub(crate) fn build_ref<K>(query: &QueryInner, term_dim_rev_index: &IndexMap<Box<str>, Vec<u32>>, documents: &IndexSet<K>) -> Vec<usize> 
     where 
         K: Eq + std::hash::Hash,
     {
@@ -118,12 +118,7 @@ impl Query {
             QueryInner::None => Vec::new(),
             QueryInner::Nop(term) => {
                 if let Some(doc_keys) = term_dim_rev_index.get(term) {
-                    let mut result = Vec::with_capacity(doc_keys.len());
-                    for doc_key in doc_keys {
-                        if let Some(idx) = documents.get_index(doc_key) {
-                            result.push(idx);
-                        }
-                    }
+                    let mut result = doc_keys.iter().map(|&id| id as usize).collect::<Vec<usize>>();
                     result.sort_unstable();
                     result
                 } else {
@@ -205,7 +200,7 @@ impl Query {
         }
     }
 
-    pub fn build<K>(&self, term_dim_rev_index: &IndexMap<Box<str>, Vec<KeyRc<K>>>, documents: &IndexSet<KeyRc<K>>) -> Vec<usize> 
+    pub fn build<K>(&self, term_dim_rev_index: &IndexMap<Box<str>, Vec<u32>>, documents: &IndexSet<K>) -> Vec<usize> 
     where 
         K: Eq + std::hash::Hash,
     {

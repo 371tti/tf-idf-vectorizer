@@ -4,18 +4,18 @@ pub mod term;
 pub mod serde;
 pub mod evaluate;
 
-use std::{rc::Rc, sync::Arc};
+use std::cmp::Ordering;
+use std::sync::Arc;
 use std::hash::Hash;
 
 use half::f16;
 use num_traits::Num;
 
+use crate::utils::datastruct::map::index_map::{InsertResult, RemoveResult};
 use crate::utils::datastruct::vector::{TFVector, TFVectorTrait, IDFVector};
 use crate::{DefaultTFIDFEngine, TFIDFEngine, TermFrequency};
 use crate::utils::datastruct::map::IndexMap;
 use crate::Corpus;
-
-pub type KeyRc<K> = Rc<K>;
 
 /// TF-IDF Vectorizer
 ///
@@ -54,9 +54,10 @@ where
     K: Clone + Send + Sync + Eq + std::hash::Hash,
 {
     /// Document's TF Vector
-    pub documents: IndexMap<KeyRc<K>, TFVector<N>>,
+    pub documents: IndexMap<K, TFVector<N>>,
     /// TF Vector's term dimension sample and reverse index
-    pub term_dim_rev_index: IndexMap<Box<str>, Vec<KeyRc<K>>>,
+    /// Key is never changed and unused terms are not removed
+    pub term_dim_rev_index: IndexMap<Box<str>, Vec<u32>>,
     /// Corpus reference
     pub corpus_ref: Arc<Corpus>,
     /// IDF Vector
@@ -115,47 +116,90 @@ where
     /// Add a document
     /// The immediately referenced Corpus is also updated
     pub fn add_doc(&mut self, key: K, doc: &TermFrequency) {
-        // key_rcを作成
-        let key_rc = KeyRc::new(key);
-        if self.documents.contains_key(&key_rc) {
-            self.del_doc(&key_rc);
-        }
-        // ドキュメントのトークンをコーパスに追加
-        self.add_corpus(doc);
-        // 新語彙を差分追加 (O(|doc_vocab|))
+        // 新語彙を追加 (O(|doc_vocab|))
         for tok in doc.term_set(){
             self.term_dim_rev_index
-                .entry_mut(tok.into_boxed_str())
-                .or_insert_with(Vec::new)
-                .push(Rc::clone(&key_rc)); // 逆Indexに追加
+            .entry_mut(tok.into_boxed_str())
+                .or_insert_with(Vec::new);
         }
-
         let tf_vec= E::tf_vec(doc, self.term_dim_rev_index.as_index_set());
-        self.documents.insert(key_rc, tf_vec);
+        // 追加した単語
+        let mut added_terms = Vec::new();
+        // 削除した単語
+        let mut removed_terms = Vec::new();
+        match self.documents.insert(key, tf_vec) {
+            InsertResult::New { index: id } => { 
+                self.documents.get_with_index(id).expect("unreachable").as_ind_slice().iter().for_each(|&idx| {
+                    self.term_dim_rev_index.get_with_index_mut(idx as usize).expect("unreachable").push(id as u32);
+                    added_terms.push(idx);
+                });
+            }
+            InsertResult::Override { old_value: old_tf, old_key: _, index: id } => {
+                let old_tf_ind_iter = old_tf.as_ind_slice().iter();
+                let new_tf_ind_iter = self.documents.get_with_index(id).expect("unreachable").as_ind_slice().iter();
+                let mut old_it = old_tf_ind_iter.fuse();
+                let mut new_it = new_tf_ind_iter.fuse();
+                let mut old_next = old_it.next();
+                let mut new_next = new_it.next();
+                while let (Some(old_idx), Some(new_idx)) = (old_next, new_next) {
+                    match old_idx.cmp(new_idx) {
+                        Ordering::Equal => {
+                            // 両方に存在 -> 何もしない
+                            old_next = old_it.next();
+                            new_next = new_it.next();
+                        }
+                        Ordering::Less => {
+                            // old にのみ存在 -> 削除
+                            let doc_keys = self.term_dim_rev_index.get_with_index_mut(*old_idx as usize).expect("unreachable");
+                            doc_keys.iter().position(|k| *k == id as u32).map(|pos| {
+                                doc_keys.swap_remove(pos);
+                            });
+                            removed_terms.push(*old_idx);
+                            old_next = old_it.next();
+                        }
+                        Ordering::Greater => {
+                            // new にのみ存在 -> 追加
+                            let doc_keys = self.term_dim_rev_index.get_with_index_mut(*new_idx as usize).expect("unreachable");
+                            doc_keys.push(id as u32);
+                            added_terms.push(*new_idx);
+                            new_next = new_it.next();
+                        }
+                    }
+                }
+            }
+        }
+        // コーパスも更新
+        let added_terms_str = added_terms.iter()
+            .filter_map(|&idx| self.term_dim_rev_index.get_key_with_index(idx as usize).cloned())
+            .collect::<Vec<Box<str>>>();
+        self.corpus_ref.add_set(&added_terms_str);
+        let removed_terms_str = removed_terms.iter()
+            .filter_map(|&idx| self.term_dim_rev_index.get_key_with_index(idx as usize).cloned())
+            .collect::<Vec<Box<str>>>();
+        self.corpus_ref.sub_set(&removed_terms_str);
     }
 
     pub fn del_doc(&mut self, key: &K)
     where
         K: PartialEq,
     {
-        let rc_key = KeyRc::new(key.clone());
-        if let Some(tf_vec) = self.documents.get(&rc_key) {
-            let terms = tf_vec.raw_iter()
-                .filter_map(|(idx, _)| {
-                    let idx = idx as usize;
-                    let doc_keys = self.term_dim_rev_index.get_with_index_mut(idx);
-                    if let Some(doc_keys) = doc_keys {
-                        // 逆Indexから削除
-                        let rc_key = KeyRc::new(key.clone());
-                        doc_keys.retain(|k| *k != rc_key);
-                    }
-                    let term = self.term_dim_rev_index.get_key_with_index(idx).cloned();
-                    term
-                }).collect::<Vec<Box<str>>>();
-            // ドキュメントを削除
-            self.documents.swap_remove(&rc_key);
-            // コーパスからも削除
-            self.corpus_ref.sub_set(&terms);
+        match self.documents.swap_remove(key) {
+            RemoveResult::Removed { old_value: tf_vec, old_key: _, index: id } => {
+                // 逆Indexから削除
+                let terms_idx = tf_vec.as_ind_slice();
+                terms_idx.iter().for_each(|&idx| {
+                    let doc_keys = self.term_dim_rev_index.get_with_index_mut(idx as usize).expect("unreachable");
+                    doc_keys.iter().position(|k| *k == id as u32).map(|pos| {
+                        doc_keys.swap_remove(pos);
+                    });
+                });
+                // コーパスからも削除
+                let terms = terms_idx.iter()
+                    .filter_map(|&idx| self.term_dim_rev_index.get_key_with_index(idx as usize).cloned())
+                    .collect::<Vec<Box<str>>>();
+                self.corpus_ref.sub_set(&terms);
+            }
+            RemoveResult::None => {}
         }
     }
 
@@ -164,8 +208,7 @@ where
     where
         K: Eq + Hash,
     {
-        let rc_key = KeyRc::new(key.clone());
-        self.documents.get(&rc_key)
+        self.documents.get(key)
     }
 
     /// Get TermFrequency by document ID
@@ -193,8 +236,7 @@ where
     where
         K: PartialEq,
     {
-        let rc_key = KeyRc::new(key.clone());
-        self.documents.contains_key(&rc_key)
+        self.documents.contains_key(key)
     }
 
     /// Check if the term exists in the term dimension sample
@@ -209,12 +251,5 @@ where
 
     pub fn doc_num(&self) -> usize {
         self.documents.len()
-    }
-
-    /// add document to corpus
-    /// update the referenced corpus
-    fn add_corpus(&self, doc: &TermFrequency) {
-        // add document to corpus
-        self.corpus_ref.add_set(&doc.term_set_ref_str());
     }
 }

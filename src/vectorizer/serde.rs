@@ -5,7 +5,7 @@ use ahash::RandomState;
 use num_traits::Num;
 use serde::{ser::SerializeStruct, Deserialize, Serialize};
 
-use crate::{Corpus, TFIDFVectorizer, utils::datastruct::{map::IndexMap, vector::TFVectorTrait}, vectorizer::{IDFVector, KeyRc, TFVector, tfidf::{DefaultTFIDFEngine, TFIDFEngine}}};
+use crate::{Corpus, TFIDFVectorizer, utils::datastruct::{map::IndexMap, vector::TFVectorTrait}, vectorizer::{IDFVector, TFVector, tfidf::{DefaultTFIDFEngine, TFIDFEngine}}};
 
 /// TF-IDF Vectorizer Data Structure (Corpus-free)
 ///
@@ -32,7 +32,7 @@ where
     K: Clone + Eq + Hash,
 {
     /// TF vectors for documents
-    pub documents: IndexMap<KeyRc<K>, TFVector<N>>,
+    pub documents: IndexMap<K, TFVector<N>>,
     /// term dimension sample for TF vectors
     pub term_dim_sample: Vec<Box<str>>,
     /// IDF vector
@@ -52,15 +52,15 @@ where
     /// `corpus_ref` is a reference to the corpus.
     pub fn into_tf_idf_vectorizer(self, corpus_ref: Arc<Corpus>) -> TFIDFVectorizer<N, K, E>
     {
-        let mut term_dim_rev_index: IndexMap<Box<str>, Vec<KeyRc<K>>, RandomState> =
+        let mut term_dim_rev_index: IndexMap<Box<str>, Vec<u32>, RandomState> =
             IndexMap::with_capacity(self.term_dim_sample.len());
         // 順序通りに初めに登録しておく
         self.term_dim_sample.iter().for_each(|term| {
             term_dim_rev_index.insert(term.clone(), Vec::new());
         });
-        self.documents.iter().for_each(|(key, doc_tf_vec)| {
+        self.documents.iter().enumerate().for_each(|(id, (_, doc_tf_vec))| {
             doc_tf_vec.raw_iter().for_each(|(idx, _)| {
-                term_dim_rev_index.get_with_index_mut(idx as usize).unwrap().push(key.clone());
+                term_dim_rev_index.get_with_index_mut(idx as usize).unwrap().push(id as u32);
             });
         });
 
@@ -116,21 +116,21 @@ where
             N: Num + Copy,
             K: Clone + Eq + Hash,
         {
-            documents: IndexMap<KeyRc<K>, TFVector<N>>,
+            documents: IndexMap<K, TFVector<N>>,
             term_dim_sample: Vec<Box<str>>,
             corpus_ref: Arc<Corpus>,
         }
 
         let helper = TFIDFVectorizerHelper::<N, K>::deserialize(deserializer)?;
-        let mut term_dim_rev_index: IndexMap<Box<str>, Vec<KeyRc<K>>, RandomState> =
+        let mut term_dim_rev_index: IndexMap<Box<str>, Vec<u32>, RandomState> =
             IndexMap::with_capacity(helper.term_dim_sample.len());
         // 順序通りに初めに登録しておく
         helper.term_dim_sample.iter().for_each(|term| {
             term_dim_rev_index.insert(term.clone(), Vec::new());
         });
-        helper.documents.iter().for_each(|(key, doc_tf_vec)| {
+        helper.documents.iter().enumerate().for_each(|(id, (_, doc_tf_vec))| {
             doc_tf_vec.raw_iter().for_each(|(idx, _)| {
-                term_dim_rev_index.get_with_index_mut(idx as usize).unwrap().push(key.clone());
+                term_dim_rev_index.get_with_index_mut(idx as usize).unwrap().push(id as u32);
             });
         });
 

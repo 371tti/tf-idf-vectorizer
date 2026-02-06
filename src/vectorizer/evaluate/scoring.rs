@@ -1,8 +1,8 @@
-use std::{borrow::Borrow, cmp::Ordering, fmt::{Debug, Display}, hash::Hash, iter::FusedIterator, ops::Deref};
+use std::{borrow::Borrow, cmp::Ordering, fmt::{Debug, Display}, hash::Hash, iter::FusedIterator};
 
 use num_traits::{pow::Pow, Num};
 
-use crate::{Query, TFIDFEngine, TFIDFVectorizer, TermFrequency, utils::{datastruct::vector::{TFVector, TFVectorTrait}}, vectorizer::KeyRc};
+use crate::{Query, TFIDFEngine, TFIDFVectorizer, TermFrequency, utils::{datastruct::vector::{TFVector, TFVectorTrait}}};
 
 /// Similarity Algorithm
 ///
@@ -235,7 +235,7 @@ where
     N: Num + Copy + Into<f64> + Send + Sync,
     E: TFIDFEngine<N> + Send + Sync,
 {
-    type Item = (&'a KeyRc<K>, &'a TFVector<N>);
+    type Item = (&'a K, &'a TFVector<N>);
 
     #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
@@ -297,9 +297,7 @@ where
     fn contains_docs(&self, freq: &TermFrequency) -> Hits<K> {
         let mut doc_indices: Vec<usize> = freq.term_set_ref_str().iter().flat_map(|&term| {
             self.term_dim_rev_index.get(term).map(|keys| {
-                keys.iter().filter_map(|key| {
-                    self.documents.get_index(key)
-                }).collect::<Vec<usize>>()
+                keys.iter().map(|&id| id as usize).collect()
             }).unwrap_or_else(Vec::new)
         }).collect();
         doc_indices.sort_unstable();
@@ -307,7 +305,7 @@ where
         doc_indices.iter().map(|&idx| {
             let (key, doc_tf_vec) = self.documents.get_key_value_with_index(idx).unwrap();
             HitEntry {
-                key: key.deref().clone(),
+                key: key.clone(),
                 score: 1.0,
                 doc_len: doc_tf_vec.term_sum(),
             }
@@ -315,12 +313,12 @@ where
     }
 
     /// Scoring by dot product
-    fn scoring_dot(&self, freq: &TermFrequency, doc_iter: impl Iterator<Item = (&'a KeyRc<K>, &'a TFVector<N>)>) -> Hits<K> {
+    fn scoring_dot(&self, freq: &TermFrequency, doc_iter: impl Iterator<Item = (&'a K, &'a TFVector<N>)>) -> Hits<K> {
         let query_tf_vec = E::tf_vec(&freq, self.term_dim_rev_index.as_index_set());
 
         let doc_scores = doc_iter.map(|(key, doc_tf_vec)| 
             HitEntry {
-                key: key.deref().clone(),
+                key: key.clone(),
                 score: {
                     let mut cut_down = 0;
                     query_tf_vec.raw_iter().map(|(idx, val)| {
@@ -339,7 +337,7 @@ where
 
     /// Scoring by cosine similarity
     /// cosθ = A・B / (|A||B|)
-    fn scoring_cosine(&self, freq: &TermFrequency, doc_iter: impl Iterator<Item = (&'a KeyRc<K>, &'a TFVector<N>)>) -> Hits<K> {
+    fn scoring_cosine(&self, freq: &TermFrequency, doc_iter: impl Iterator<Item = (&'a K, &'a TFVector<N>)>) -> Hits<K> {
         let query_tf_vec= E::tf_vec(&freq, self.term_dim_rev_index.as_index_set());
 
         let doc_scores = doc_iter.map(|(key, doc_tf_vec)| {
@@ -399,7 +397,7 @@ where
             // Zero division safety with f64::EPSILON
             let score = dot as f64 / (norm_a as f64 * norm_b as f64 + f64::EPSILON);
             HitEntry {
-                key: key.deref().clone(),
+                key: key.clone(),
                 score,
                 doc_len: doc_tf_vec.term_sum(),
             }
@@ -408,7 +406,7 @@ where
     }
 
     /// Scoring by BM25-Like
-    fn scoring_bm25(&self, freq: &TermFrequency, k1: f64, b: f64, doc_iter: impl Iterator<Item = (&'a KeyRc<K>, &'a TFVector<N>)>) -> Hits<K> {
+    fn scoring_bm25(&self, freq: &TermFrequency, k1: f64, b: f64, doc_iter: impl Iterator<Item = (&'a K, &'a TFVector<N>)>) -> Hits<K> {
         let query_tf_vec = E::tf_vec(&freq, self.term_dim_rev_index.as_index_set());
 
         let k1_p = k1 + 1.0;
@@ -418,7 +416,7 @@ where
 
         let doc_scores = doc_iter.map(|(key, doc_tf_vec)| 
             HitEntry {
-                key: key.deref().clone(),
+                key: key.clone(),
                 score: {
                     let len_p = doc_tf_vec.term_sum() as f64 * rev_avg_l;
                     let mut cut_down = 0;
