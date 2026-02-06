@@ -6,7 +6,7 @@
 queryでは`&` `|` `!` `[]` が使えるようにしてます。
 
 ## index構築
-sudachi termizerを用い、C modeでtermizeしたのち それらの語彙をさらにA modeでtermizeしています。
+sudachi termizerを用い、C modeでtokenizeしたのち それらの語彙をさらにA modeでtokenizeしています。
 
 
 ```
