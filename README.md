@@ -41,7 +41,7 @@
 Cargo.toml
 ```toml
 [dependencies]
-tf-idf-vectorizer = "0.10"  # 本READMEは `v0.9.x` 向け
+tf-idf-vectorizer = "0.10"  # 本READMEは `v0.10.x` 向け
 ```
 
 ## 基本的な使い方
@@ -178,6 +178,7 @@ score: 0.003570 doc_len: 3801   key: "3088_Linuxカーネル.json"
 
 # Todo
 - [x] 十分なパフォーマンス最適化
+- [x] Rcの削除
 - [ ] Reverse Indexのメモリ展開でページアウトできるように
 
 # 貢献はプルリクで(。-`ω-)

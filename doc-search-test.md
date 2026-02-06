@@ -21,8 +21,14 @@ Indexing completed: 2339298 docs in 4182.40 sec (559.32 docs/sec)
 - RAM: DDR4 dual-ch 2800 48GB
 - allocator: mimalloc on windows
 
+本実装ではIndex生成はマルチスレッド、評価はシングルスレッドでの動作となります。
+
 ## Test
 以下にあそびでなげまくったqueryの検索結果(top 30) です
+
+以下はProcess Explorerでのメモリ使用量のスクリーンショットですー
+
+![prexの統計](image.png)
 
 ```
 
