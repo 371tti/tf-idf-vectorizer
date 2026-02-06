@@ -4,6 +4,7 @@ use num_traits::Num;
 
 pub mod serde;
 
+#[allow(dead_code)]
 const TF_VECTOR_SIZE: usize = core::mem::size_of::<TFVector<u8>>();
 static_assertions::const_assert!(TF_VECTOR_SIZE == 32);
 
