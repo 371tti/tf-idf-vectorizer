@@ -11,6 +11,7 @@ where N: Num + Copy
 {
     fn len(&self) -> u32;
     fn nnz(&self) -> u32;
+    fn cap(&self) -> u32;
     fn term_sum(&self) -> u32;
     fn new() -> Self;
     fn new_with_capacity(capacity: u32) -> Self;
@@ -104,6 +105,17 @@ where N: Num + Copy
     fn as_ind_slice(&self) -> &[u32] {
         unsafe { core::slice::from_raw_parts(self.ind_ptr(), self.nnz() as usize) }
     }
+    #[inline(always)]
+    fn perm(&mut self, perm_idxs: &[u32]) {
+        unsafe {
+            let mut_ind_slice = core::slice::from_raw_parts_mut(self.ind_ptr(), self.nnz() as usize);
+            let mut_val_slice = core::slice::from_raw_parts_mut(self.val_ptr(), self.nnz() as usize);
+            mut_ind_slice.iter_mut().for_each(|x| {
+                *x = perm_idxs[*x as usize];
+            });
+            crate::utils::sort::radix_sort_u32_soa(mut_ind_slice, mut_val_slice);
+        }
+    }
 }
 
 impl<N> TFVectorTrait<N> for TFVector<N> 
@@ -146,6 +158,11 @@ where N: Num + Copy
     #[inline(always)]
     fn len(&self) -> u32 {
         self.len
+    }
+
+    #[inline(always)]
+    fn cap(&self) -> u32 {
+        self.cap
     }
 
     #[inline(always)]

@@ -92,6 +92,13 @@ where
     }
 
     #[inline]
+    pub fn into_iter(self) -> impl Iterator<Item = (K, V)> {
+        let keys = self.index_set.keys;
+        let values = self.values;
+        keys.into_iter().zip(values.into_iter())
+    }
+
+    #[inline]
     pub fn values(&self) -> &Vec<V> {
         &self.values
     }

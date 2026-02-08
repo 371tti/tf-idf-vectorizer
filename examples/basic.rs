@@ -20,7 +20,7 @@ fn main() {
     vectorizer.del_doc(&"doc1".to_string());
     vectorizer.add_doc("doc3".to_string(), &freq1);
 
-    let query = Query::and(Query::term("rust"), Query::term("安全"));
+    let query = Query::and(Query::term("柔軟"), Query::term("安全"));
     let algorithm = SimilarityAlgorithm::CosineSimilarity;
     let mut result = vectorizer.search(&algorithm, query);
     result.sort_by_score_desc();

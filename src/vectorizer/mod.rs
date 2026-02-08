@@ -11,7 +11,7 @@ use std::hash::Hash;
 use half::f16;
 use num_traits::Num;
 
-use crate::utils::datastruct::map::index_map::{InsertResult, RemoveResult};
+use crate::utils::datastruct::map::index_map::{EntryMut, InsertResult, RemoveResult};
 use crate::utils::datastruct::vector::{TFVector, TFVectorTrait, IDFVector};
 use crate::{DefaultTFIDFEngine, TFIDFEngine, TermFrequency};
 use crate::utils::datastruct::map::IndexMap;
@@ -123,16 +123,71 @@ where
                 .or_insert_with(Vec::new);
         }
         let tf_vec= E::tf_vec(doc, self.term_dim_rev_index.as_index_set());
-        // 追加した単語
-        let mut added_terms = Vec::new();
-        // 削除した単語
-        let mut removed_terms = Vec::new();
+        let (new_terms, old_terms) = self.add_tf_vec(key, tf_vec);
+        // コーパスも更新
+        if old_terms.is_empty() && new_terms.is_empty() {
+            // 何も変わっていなければ何もしない
+            return;
+        }
+        if old_terms.is_empty() {
+            // 追加のみ
+            let add_terms: Vec<&Box<str>> = new_terms.iter()
+                .filter_map(|&idx| self.term_dim_rev_index.get_key_with_index(idx as usize))
+                .collect();
+            self.corpus_ref.add_set(&add_terms);
+            return;
+        }
+        let mut new_terms_iter = new_terms.into_iter().fuse();
+        let mut old_terms_iter = old_terms.into_iter().fuse();
+        let mut new_term_next = new_terms_iter.next();
+        let mut old_term_next = old_terms_iter.next();
+        let mut add_terms = Vec::new();
+        let mut del_terms = Vec::new();
+        while let (Some(new_idx), Some(old_idx)) = (new_term_next, old_term_next) {
+            match new_idx.cmp(&old_idx) {
+                Ordering::Less => {
+                    // new にのみ存在 -> 追加
+                    let term = self.term_dim_rev_index.get_key_with_index(new_idx as usize).expect("unreachable");
+                    add_terms.push(term);
+                    new_term_next = new_terms_iter.next();
+                }
+                Ordering::Greater => {
+                    // old にのみ存在 -> 削除
+                    let term = self.term_dim_rev_index.get_key_with_index(old_idx as usize).expect("unreachable");
+                    del_terms.push(term);
+                    old_term_next = old_terms_iter.next();
+                }
+                Ordering::Equal => {
+                    // 両方に存在 -> 何もしない
+                    new_term_next = new_terms_iter.next();
+                    old_term_next = old_terms_iter.next();
+                }
+            }
+        }
+        while let Some(new_idx) = new_term_next {
+            // new にのみ存在 -> 追加
+            let term = self.term_dim_rev_index.get_key_with_index(new_idx as usize).expect("unreachable");
+            add_terms.push(term);
+            new_term_next = new_terms_iter.next();
+        }
+        while let Some(old_idx) = old_term_next {
+            // old にのみ存在 -> 削除
+            let term = self.term_dim_rev_index.get_key_with_index(old_idx as usize).expect("unreachable");
+            del_terms.push(term);
+            old_term_next = old_terms_iter.next();
+        }
+        self.corpus_ref.add_set(&add_terms);
+        self.corpus_ref.sub_set(&del_terms);
+    }
+
+    fn add_tf_vec(&mut self, key: K, tf_vec: TFVector<N>) -> (Vec<u32>, Vec<u32>) {
+        let new_tf_terms_ind: Vec<u32> = tf_vec.as_ind_slice().to_vec();
         match self.documents.insert(key, tf_vec) {
             InsertResult::New { index: id } => { 
                 self.documents.get_with_index(id).expect("unreachable").as_ind_slice().iter().for_each(|&idx| {
                     self.term_dim_rev_index.get_with_index_mut(idx as usize).expect("unreachable").push(id as u32);
-                    added_terms.push(idx);
                 });
+                (new_tf_terms_ind, Vec::new())
             }
             InsertResult::Override { old_value: old_tf, old_key: _, index: id } => {
                 let old_tf_ind_iter = old_tf.as_ind_slice().iter();
@@ -154,29 +209,19 @@ where
                             doc_keys.iter().position(|k| *k == id as u32).map(|pos| {
                                 doc_keys.swap_remove(pos);
                             });
-                            removed_terms.push(*old_idx);
                             old_next = old_it.next();
                         }
                         Ordering::Greater => {
                             // new にのみ存在 -> 追加
                             let doc_keys = self.term_dim_rev_index.get_with_index_mut(*new_idx as usize).expect("unreachable");
                             doc_keys.push(id as u32);
-                            added_terms.push(*new_idx);
                             new_next = new_it.next();
                         }
                     }
                 }
+                (new_tf_terms_ind, old_tf.as_ind_slice().to_vec())
             }
         }
-        // コーパスも更新
-        let added_terms_str = added_terms.iter()
-            .filter_map(|&idx| self.term_dim_rev_index.get_key_with_index(idx as usize).cloned())
-            .collect::<Vec<Box<str>>>();
-        self.corpus_ref.add_set(&added_terms_str);
-        let removed_terms_str = removed_terms.iter()
-            .filter_map(|&idx| self.term_dim_rev_index.get_key_with_index(idx as usize).cloned())
-            .collect::<Vec<Box<str>>>();
-        self.corpus_ref.sub_set(&removed_terms_str);
     }
 
     pub fn del_doc(&mut self, key: &K)
@@ -193,10 +238,20 @@ where
                         doc_keys.swap_remove(pos);
                     });
                 });
+                // swap したdocにおいて逆IndexのIDを書き換え
+                let swap_doc_id = self.documents.len() as u32;
+                if swap_doc_id != id as u32 {
+                    self.documents.get_with_index(id).expect("unreachable").as_ind_slice().iter().for_each(|&idx| {
+                        let doc_keys = self.term_dim_rev_index.get_with_index_mut(idx as usize).expect("unreachable");
+                        doc_keys.iter().position(|k| *k == swap_doc_id).map(|pos| {
+                            doc_keys[pos] = id as u32;
+                        });
+                    });
+                }
                 // コーパスからも削除
                 let terms = terms_idx.iter()
-                    .filter_map(|&idx| self.term_dim_rev_index.get_key_with_index(idx as usize).cloned())
-                    .collect::<Vec<Box<str>>>();
+                    .filter_map(|&idx| self.term_dim_rev_index.get_key_with_index(idx as usize))
+                    .collect::<Vec<&Box<str>>>();
                 self.corpus_ref.sub_set(&terms);
             }
             RemoveResult::None => {}
@@ -251,5 +306,34 @@ where
 
     pub fn doc_num(&self) -> usize {
         self.documents.len()
+    }
+
+    /// Merge another TFIDFVectorizer into this one
+    pub fn merge(&mut self, other: Self)
+    where
+        K: Eq + Hash,
+    {
+        // termの追加と置換行列を作成
+        let perm_idxs: Vec<u32> = other.term_dim_rev_index.into_iter().map(|(term, _)| {
+            match self.term_dim_rev_index.entry_mut(term) {
+                EntryMut::Occupied { index, ..} => index as u32,
+                EntryMut::Vacant { key, map } => {
+                    match map.insert(key, Vec::new()) {
+                        InsertResult::New { index } => index as u32,
+                        InsertResult::Override { .. } => unreachable!(),
+                    }
+                },
+            }
+        }).collect();
+        // documents のマージ
+        other.documents.into_iter().for_each(|(key, mut tf_vec)| {
+            tf_vec.perm(&perm_idxs);
+            let (_, old_tf_terms_ind) = self.add_tf_vec(key, tf_vec);
+            // コーパスも更新
+            let del_terms = old_tf_terms_ind.into_iter().map(|old_idx| {
+                self.term_dim_rev_index.get_key_with_index(old_idx as usize).expect("unreachable")
+            }).collect::<Vec<&Box<str>>>();
+            self.corpus_ref.sub_set(&del_terms);
+        });
     }
 }
