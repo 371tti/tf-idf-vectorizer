@@ -1,6 +1,7 @@
 use std::{borrow::Borrow, cmp::Ordering, fmt::{Debug, Display}, hash::Hash, iter::FusedIterator};
 
 use num_traits::{pow::Pow, Num};
+use serde::{Deserialize, Serialize};
 
 use crate::{Query, TFIDFEngine, TFIDFVectorizer, TermFrequency, utils::{datastruct::vector::{TFVector, TFVectorTrait}}};
 
@@ -13,7 +14,7 @@ use crate::{Query, TFIDFEngine, TFIDFVectorizer, TermFrequency, utils::{datastru
 /// - `Dot`: Dot product (long documents)
 /// - `Cosine`: Cosine similarity (proper nouns)
 /// - `BM25Like`: BM25-inspired scoring
-#[derive(Clone)]
+#[derive(Clone, Deserialize, Serialize)]
 pub enum SimilarityAlgorithm {
     /// Contains
     /// Checks if documents contain the query terms
@@ -35,7 +36,7 @@ pub enum SimilarityAlgorithm {
 ///
 /// - `Hits`: A collection of ranked search results
 /// - `HitEntry`: A single search result entry
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Serialize)]
 pub struct Hits<K> 
 {
     /// (Document ID, Score, Document Length)
@@ -43,7 +44,7 @@ pub struct Hits<K>
 }
 
 /// Single Search Result Entry
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub struct HitEntry<K> {
     /// Document Key
     pub key: K,
