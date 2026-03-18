@@ -50,7 +50,7 @@ where
 }
 
 /// デフォルトのTF-IDFエンジン
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DefaultTFIDFEngine;
 impl DefaultTFIDFEngine {
     pub fn new() -> Self {

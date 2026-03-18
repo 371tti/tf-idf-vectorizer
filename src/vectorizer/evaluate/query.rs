@@ -74,6 +74,10 @@ impl Query {
         }
     }
 
+    pub fn from_inner(inner: QueryInner) -> Self {
+        Query { inner }
+    }
+
     pub fn get_all_terms(&self) -> Vec<&str> {
         let mut terms = Vec::new();
         Self::collect_terms_ref(&self.inner, &mut terms);
@@ -200,7 +204,7 @@ impl Query {
         }
     }
 
-    pub fn build<K>(&self, term_dim_rev_index: &IndexMap<Box<str>, Vec<u32>>, documents: &IndexSet<K>) -> Vec<usize> 
+    pub(crate) fn build<K>(&self, term_dim_rev_index: &IndexMap<Box<str>, Vec<u32>>, documents: &IndexSet<K>) -> Vec<usize> 
     where 
         K: Eq + std::hash::Hash,
     {
